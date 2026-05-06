@@ -6,20 +6,10 @@ from datetime import datetime
 # Configuración de página
 st.set_page_config(page_title="Seguimiento de Oportunidades RGC", layout="wide")
 
-# Estilo CSS para logos y estética corporativa
+# Estilo CSS optimizado (Sin sección de logos)
 st.markdown("""
     <style>
     .main { background-color: #ffffff; }
-    .logo-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 0px 30px 0px;
-    }
-    .logo-container img {
-        height: 50px;
-        object-fit: contain;
-    }
     [data-testid="stMetricValue"] { color: #800020 !important; font-weight: 800; }
     .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 20px; border-radius: 10px; }
     div[data-testid="stSidebar"] { background-color: #f1f3f5; border-right: 1px solid #dee2e6; }
@@ -28,15 +18,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ENCABEZADO CON LOGOS ---
-st.markdown(f"""
-    <div class="logo-container">
-        <img src="https://www.technoma.com.py/images/logo.png" alt="Technoma">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Ricoh_logo.svg/2560px-Ricoh_logo.svg.png" alt="Ricoh">
-        <img src="https://www.duplousa.com/wp-content/themes/duplo/assets/images/logo-duplo.png" alt="Duplo">
-    </div>
-    """, unsafe_allow_html=True)
-
+# Título principal
 st.title("📋 Seguimiento de Oportunidades RGC")
 st.divider()
 
