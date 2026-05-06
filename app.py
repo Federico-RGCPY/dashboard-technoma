@@ -81,11 +81,8 @@ with st.sidebar:
 # --- PROCESAMIENTO DE DATOS ---
 df = st.session_state.ventas.copy()
 if not df.empty:
-    # Convertir a datetime para poder ordenar y agrupar
     df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'])
     df = df.sort_values(by='Cierre Estimado')
-    # Crear etiqueta de Mes y Año (ej: Junio 2026)
-    # Usamos dt.strftime para la visualización
     df['Mes_Año_Txt'] = df['Cierre Estimado'].dt.strftime('%B %Y')
 
 # Separación por estados
@@ -105,21 +102,16 @@ st.divider()
 st.subheader("📅 Pipeline Activo por Fecha de Cierre")
 
 if not activos.empty:
-    # Agrupar por el texto de Mes y Año manteniendo el orden cronológico
     meses = activos['Mes_Año_Txt'].unique()
     
     for mes in meses:
         st.markdown(f'<div class="header-mes">{mes.upper()}</div>', unsafe_allow_html=True)
-        
-        # Filtrar registros de este mes específico
         items_mes = activos[activos['Mes_Año_Txt'] == mes]
         
         for i, row in items_mes.iterrows():
-            # Cálculo de alarma (10 días desde el último movimiento)
             dias_inactivo = (date.today() - pd.to_datetime(row['Último Movimiento']).date()).days
             
             with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,})"):
-                
                 if dias_inactivo >= 10:
                     st.markdown(f'<div class="alerta-roja">🚨 ALERTA: {dias_inactivo} días sin cambios de estado.</div>', unsafe_allow_html=True)
                 
@@ -130,4 +122,26 @@ if not activos.empty:
                     st.write(f"**Cierre:** {row['Cierre Estimado'].strftime('%d/%m/%Y')}")
                 
                 with col_edit:
+                    lista_estados = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
+                    # Corregido el cierre de paréntesis y lógica de índice
                     nuevo_estado = st.selectbox(
+                        "Cambiar Estado", 
+                        options=lista_estados,
+                        index=lista_estados.index(row['Status']),
+                        key=f"edit_{row['ID']}"
+                    )
+                    
+                    if nuevo_estado != row['Status']:
+                        idx_original = st.session_state.ventas[st.session_state.ventas['ID'] == row['ID']].index[0]
+                        st.session_state.ventas.at[idx_original, 'Status'] = nuevo_estado
+                        st.session_state.ventas.at[idx_original, 'Último Movimiento'] = date.today()
+                        st.rerun()
+else:
+    st.info("No hay oportunidades activas.")
+
+st.divider()
+
+# --- HISTORIAL ---
+st.subheader("📂 Historial de Resultados")
+if not finalizados.empty:
+    st.dataframe(finalizados[['Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado']], use_container_width=True)
