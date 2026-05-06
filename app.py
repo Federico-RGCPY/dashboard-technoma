@@ -1,125 +1,112 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
-# Configuración de Marca Technoma - Versión Alta Claridad
+# Configuración de Marca Technoma
 st.set_page_config(page_title="Technoma Intelligence", layout="wide")
 
-# Estilo CSS - Fondo Claro y Contraste Bordó
+# Estilo CSS - Alta Visibilidad y Profesionalismo
 st.markdown("""
     <style>
-    /* Fondo principal y textos */
-    .main { background-color: #ffffff; color: #1a1a1a; }
-    
-    /* Indicadores numéricos (Métricas) */
-    [data-testid="stMetricValue"] {
-        color: #800020 !important;
-        font-weight: 800;
-        font-size: 3rem !important;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #4a4a4a !important;
-        font-size: 1.1rem !important;
-        letter-spacing: 1px;
-    }
-    .stMetric {
-        background-color: #fcfcfc;
-        border: 1px solid #e0e0e0;
-        padding: 25px;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-    }
-    
-    /* Sidebar */
-    div[data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-        border-right: 1px solid #dee2e6;
-    }
-    
-    /* Botones */
-    .stButton>button {
-        background-color: #800020;
-        color: white;
-        border-radius: 4px;
-        padding: 10px;
-        font-weight: bold;
-        border: none;
-    }
-    
-    /* Títulos */
-    h1, h2, h3 { color: #800020 !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .main { background-color: #ffffff; }
+    [data-testid="stMetricValue"] { color: #800020 !important; font-weight: 800; }
+    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 20px; border-radius: 10px; }
+    div[data-testid="stSidebar"] { background-color: #f1f3f5; border-right: 1px solid #dee2e6; }
+    .stButton>button { border-radius: 5px; font-weight: bold; }
+    /* Estilo de tablas */
+    .stDataFrame { border: 1px solid #eee; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 Technoma Intelligence")
-st.markdown("### Control de Gestión y Pipeline de Soluciones")
+st.title("📊 Technoma Intelligence: Pipeline & CRM")
 
-# --- LÓGICA DE DATOS ---
+# --- INICIALIZACIÓN DE BASE DE DATOS TEMPORAL ---
 if 'ventas' not in st.session_state:
-    # Datos iniciales vacíos
-    st.session_state.ventas = pd.DataFrame(columns=['Ejecutivo Comercial', 'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status'])
+    st.session_state.ventas = pd.DataFrame(columns=[
+        'ID', 'Fecha', 'Ejecutivo Comercial', 'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status'
+    ])
 
-# --- SIDEBAR: REGISTRO ---
+# --- SIDEBAR: REGISTRO DE OPORTUNIDAD ---
 with st.sidebar:
-    st.header("🖊️ Nueva Oportunidad")
-    with st.form("registro_form"):
-        ejecutivo = st.text_input("Nombre del Ejecutivo Comercial")
-        cliente = st.text_input("Nombre del Cliente")
-        solucion = st.text_input("Tipo de Solución (Producto)") # Campo libre personalizado
+    st.header("🚀 Nueva Oportunidad")
+    with st.form("registro_form", clear_on_submit=True):
+        ejecutivo = st.text_input("Ejecutivo Comercial")
+        cliente = st.text_input("Cliente")
+        solucion = st.text_input("Tipo de Solución")
         monto = st.number_input("Monto Estimado ($)", min_value=0)
-        status = st.select_slider("Estado de Negociación", options=["Bajo", "Medio", "Cerrado"])
+        status_inicial = st.selectbox("Estado Inicial", ["Bajo", "Medio", "Cerrado"])
         
-        submit = st.form_submit_button("Registrar en Pipeline")
-        
-        if submit:
+        if st.form_submit_button("Registrar en Sistema"):
             if ejecutivo and cliente and solucion:
+                nuevo_id = len(st.session_state.ventas) + 1
                 nueva_fila = {
+                    'ID': nuevo_id,
+                    'Fecha': datetime.now().strftime("%d/%m/%Y"),
                     'Ejecutivo Comercial': ejecutivo,
                     'Cliente': cliente,
                     'Tipo de Solución': solucion,
                     'Monto Est.': monto,
-                    'Status': status
+                    'Status': status_inicial
                 }
                 st.session_state.ventas = pd.concat([st.session_state.ventas, pd.DataFrame([nueva_fila])], ignore_index=True)
-                st.toast("Operación cargada con éxito")
+                st.success("Oportunidad Sincronizada")
             else:
-                st.error("Por favor, complete todos los campos.")
+                st.error("Complete los campos obligatorios.")
 
-# --- DASHBOARD DE MÉTRICAS ---
-col1, col2, col3 = st.columns(3)
-total_pipeline = st.session_state.ventas['Monto Est.'].sum()
-conteo_proyectos = len(st.session_state.ventas)
-total_cerrados = len(st.session_state.ventas[st.session_state.ventas['Status'] == 'Cerrado'])
+# --- SEPARACIÓN DE DATOS (ACTIVOS VS HISTORIAL) ---
+df = st.session_state.ventas
+activos = df[~df['Status'].isin(['Perdido', 'Postergado'])]
+historial = df[df['Status'].isin(['Perdido', 'Postergado'])]
 
-col1.metric("PIPELINE TOTAL", f"${total_pipeline:,.0f}")
-col2.metric("OPORTUNIDADES", conteo_proyectos)
-col3.metric("CIERRES LOGRADOS", total_cerrados)
+# --- DASHBOARD DE MÉTRICAS (SOLO ACTIVOS) ---
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
+col2.metric("PROYECTOS VIVOS", len(activos))
+col3.metric("CIERRES", len(activos[activos['Status'] == 'Cerrado']))
+col4.metric("PERDIDOS/POST.", len(historial))
 
 st.divider()
 
-# --- LISTADO DINÁMICO DE EQUIPOS ---
-if not st.session_state.ventas.empty:
-    col_izq, col_der = st.columns([2, 1])
-    
-    with col_izq:
-        st.subheader("📋 Detalle de Oportunidades")
-        st.dataframe(st.session_state.ventas, use_container_width=True)
-        
-    with col_der:
-        st.subheader("🛠️ Equipos en Negociación")
-        # Mostrar lista única de soluciones cargadas
-        lista_equipos = st.session_state.ventas['Tipo de Solución'].unique()
-        for eq in lista_equipos:
-            st.markdown(f"- **{eq}**")
+# --- GESTIÓN DE OPORTUNIDADES ACTIVAS ---
+st.subheader("📋 Gestión de Pipeline Activo")
+if not activos.empty:
+    for i, row in activos.iterrows():
+        with st.expander(f"📌 {row['Cliente']} - {row['Tipo de Solución']} (${row['Monto Est.']:,})"):
+            c1, c2, c3, c4 = st.columns([2,2,1,1])
+            c1.write(f"**Ejecutivo:** {row['Ejecutivo Comercial']}")
+            c2.write(f"**Creado el:** {row['Fecha']}")
             
-    # Gráfico de barras con colores contrastados
-    st.subheader("📈 Volumen por Ejecutivo")
-    fig = px.bar(st.session_state.ventas, 
-                 x='Ejecutivo Comercial', 
-                 y='Monto Est.', 
-                 color='Status',
-                 color_discrete_map={'Bajo': '#FFC107', 'Medio': '#E91E63', 'Cerrado': '#800020'},
-                 template="plotly_white")
+            # Botones de cambio de estado
+            if c3.button("❌ Marcar Perdido", key=f"p_{row['ID']}"):
+                st.session_state.ventas.at[i, 'Status'] = 'Perdido'
+                st.rerun()
+            if c4.button("⏳ Postergar", key=f"s_{row['ID']}"):
+                st.session_state.ventas.at[i, 'Status'] = 'Postergado'
+                st.rerun()
+
+    # Gráfico Profesional
+    st.subheader("📈 Análisis de Oportunidades")
+    fig = px.bar(activos, x='Ejecutivo Comercial', y='Monto Est.', color='Status',
+                 color_discrete_map={'Bajo': '#A9A9A9', 'Medio': '#4682B4', 'Cerrado': '#800020'},
+                 template="plotly_white", barmode='group')
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("El sistema está a la espera de la carga de la primera oportunidad comercial.")
+    st.info("No hay oportunidades activas en el pipeline.")
+
+st.divider()
+
+# --- HISTORIAL (ABAJO) ---
+st.subheader("📂 Historial de Oportunidades (Perdidas/Postergadas)")
+if not historial.empty:
+    st.dataframe(historial, use_container_width=True)
+    
+    # Opción para recuperar
+    opcion_recuperar = st.selectbox("Seleccione Cliente para reactivar:", historial['Cliente'].unique())
+    if st.button("♻️ Reactivar Oportunidad"):
+        idx = df[df['Cliente'] == opcion_recuperar].index
+        st.session_state.ventas.at[idx[0], 'Status'] = 'Medio'
+        st.success(f"Oportunidad de {opcion_recuperar} devuelta al pipeline.")
+        st.rerun()
+else:
+    st.write("El historial está vacío.")
