@@ -32,11 +32,29 @@ st.markdown("""
 st.title("📋 Seguimiento de Oportunidades RGC")
 
 # --- INICIALIZACIÓN DE DATOS ---
+import os
+
+# Nombre del archivo donde se guardarán los datos
+DB_FILE = "datos_rgc.csv"
+
+# Función para cargar datos desde el CSV
+def cargar_datos():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    else:
+        # Si el archivo no existe, crea el DataFrame vacío con las columnas necesarias
+        return pd.DataFrame(columns=[
+            'ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 
+            'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'
+        ])
+
+# Al iniciar la app, cargamos lo que haya en el archivo
 if 'ventas' not in st.session_state:
-    st.session_state.ventas = pd.DataFrame(columns=[
-        'ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 
-        'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'
-    ])
+    st.session_state.ventas = cargar_datos()
+
+# Función para guardar datos (llamar a esta función después de cada registro o cambio)
+def guardar_datos():
+    st.session_state.ventas.to_csv(DB_FILE, index=False)
 
 # --- FUNCIÓN PARA EXCEL ---
 def to_excel(df):
