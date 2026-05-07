@@ -1,37 +1,17 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 from datetime import datetime, date
 import io
-import os
 
-# --- CONFIGURACIÓN DE PERSISTENCIA ---
-DB_FILE = "database_rgc.csv"
-
-def cargar_datos():
-    if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        # Asegurar que las fechas se lean como objetos de fecha y no texto
-        df['Fecha Creación'] = pd.to_datetime(df['Fecha Creación']).dt.date
-        df['Último Movimiento'] = pd.to_datetime(df['Último Movimiento']).dt.date
-        df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado']).dt.date
-        return df
-    else:
-        return pd.DataFrame(columns=[
-            'ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 
-            'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'
-        ])
-
-def guardar_datos(df):
-    df.to_csv(DB_FILE, index=False)
-
-# --- INICIO DE APP ---
+# 1. Configuración de página
 st.set_page_config(page_title="Seguimiento de Oportunidades RGC", layout="wide")
 
-if 'ventas' not in st.session_state:
-    st.session_state.ventas = cargar_datos()
+# 2. Enlace de tu Google Sheet
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
-# Estilo CSS
+# 3. Estilo CSS
 st.markdown("""
     <style>
     .main { background-color: #ffffff; }
@@ -45,21 +25,28 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📋 Seguimiento de Oportunidades RGC")
+st.title("📋 Seguimiento de Oportunidades RGC (Sincronizado)")
 
-# --- SIDEBAR: REGISTRO Y EXCEL ---
+# 4. Conexión a Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def cargar_datos_nube():
+    # Lee la hoja de cálculo. ttl=0 para que siempre traiga datos frescos
+    return conn.read(spreadsheet=SHEET_URL, ttl=0).dropna(how="all")
+
+def guardar_datos_nube(dataframe):
+    # Actualiza la hoja de cálculo completa
+    conn.update(spreadsheet=SHEET_URL, data=dataframe)
+
+# Inicializar sesión con datos de la nube
+if 'ventas' not in st.session_state:
+    st.session_state.ventas = cargar_datos_nube()
+
+# --- SIDEBAR: REGISTRO ---
 with st.sidebar:
     st.header("⚙️ Operaciones")
     
-    # Botón Excel
-    if not st.session_state.ventas.empty:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            st.session_state.ventas.to_excel(writer, index=False)
-        st.download_button(label="📥 Descargar Reporte Excel", data=output.getvalue(), 
-                           file_name=f"RGC_{date.today()}.xlsx", mime="application/vnd.ms-excel")
-        st.divider()
-
+    # Formulario de Registro
     st.subheader("📝 Nueva Oportunidad")
     with st.form("registro_form", clear_on_submit=True):
         ejecutivo = st.text_input("Ejecutivo Comercial")
@@ -69,36 +56,45 @@ with st.sidebar:
         cierre_est = st.date_input("Cierre Estimado", min_value=date.today())
         status_inicial = st.selectbox("Estado Inicial", ["Negociando", "Bajo", "Medio"])
         
-        if st.form_submit_button("Registrar"):
+        if st.form_submit_button("Registrar en la Nube"):
             if ejecutivo and cliente and solucion:
-                nuevo_id = int(datetime.now().timestamp()) # ID único basado en tiempo
-                hoy = date.today()
+                nuevo_id = int(datetime.now().timestamp())
+                hoy = date.today().strftime('%Y-%m-%d')
+                
                 nueva_fila = pd.DataFrame([{
-                    'ID': nuevo_id, 'Fecha Creación': hoy, 'Último Movimiento': hoy,
-                    'Ejecutivo Comercial': ejecutivo, 'Cliente': cliente, 
-                    'Tipo de Solución': solucion, 'Monto Est.': monto, 
-                    'Status': status_inicial, 'Cierre Estimado': cierre_est
+                    'ID': nuevo_id, 
+                    'Fecha Creación': hoy, 
+                    'Último Movimiento': hoy,
+                    'Ejecutivo Comercial': ejecutivo, 
+                    'Cliente': cliente, 
+                    'Tipo de Solución': solucion, 
+                    'Monto Est.': monto, 
+                    'Status': status_inicial, 
+                    'Cierre Estimado': cierre_est.strftime('%Y-%m-%d')
                 }])
+                
+                # Actualizar local y nube
                 st.session_state.ventas = pd.concat([st.session_state.ventas, nueva_fila], ignore_index=True)
-                guardar_datos(st.session_state.ventas) # GUARDADO AUTOMÁTICO
+                guardar_datos_nube(st.session_state.ventas)
+                st.success("¡Guardado en Google Sheets!")
                 st.rerun()
 
 # --- PROCESAMIENTO ---
-df_display = st.session_state.ventas.copy()
-if not df_display.empty:
-    df_display['Cierre Estimado'] = pd.to_datetime(df_display['Cierre Estimado'])
-    df_display = df_display.sort_values(by='Cierre Estimado')
-    df_display['Mes_Año_Txt'] = df_display['Cierre Estimado'].dt.strftime('%B %Y')
+df_act = st.session_state.ventas.copy()
+if not df_act.empty:
+    df_act['Cierre Estimado'] = pd.to_datetime(df_act['Cierre Estimado'])
+    df_act['Mes_Año_Txt'] = df_act['Cierre Estimado'].dt.strftime('%B %Y')
+    df_act = df_act.sort_values(by='Cierre Estimado')
 
-activos = df_display[df_display['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
-finalizados = df_display[df_display['Status'].isin(['Ganado', 'Perdido', 'Postergado'])]
+activos = df_act[df_act['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
+finalizados = df_act[df_act['Status'].isin(['Ganado', 'Perdido', 'Postergado'])]
 
-# --- MÉTRICAS ---
+# --- DASHBOARD ---
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("PIPELINE TOTAL", f"${activos['Monto Est.'].sum():,.0f}")
 c2.metric("PROYECTOS ACTIVOS", len(activos))
-c3.metric("EQUIPOS DISTINTOS", activos['Tipo de Solución'].nunique())
-c4.metric("TOTAL GANADO", f"${df_display[df_display['Status']=='Ganado']['Monto Est.'].sum():,.0f}")
+c3.metric("EQUIPOS", activos['Tipo de Solución'].nunique() if not activos.empty else 0)
+c4.metric("TOTAL GANADO", f"${df_act[df_act['Status']=='Ganado']['Monto Est.'].sum():,.0f}")
 
 st.divider()
 
@@ -118,7 +114,7 @@ with col_p:
                 
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,})"):
                     if dias_atraso >= 10:
-                        st.markdown(f'<div class="alerta-roja">🚨 ALERTA: {dias_atraso} días sin actualización.</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div class="alerta-roja">🚨 ALERTA: {dias_atraso} días sin cambios.</div>', unsafe_allow_html=True)
                     
                     ci, ce = st.columns([2, 1])
                     with ci:
@@ -127,14 +123,18 @@ with col_p:
                     with ce:
                         lista_est = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
                         nuevo_st = st.selectbox("Status", options=lista_est, index=lista_est.index(row['Status']), key=f"st_{row['ID']}")
+                        
                         if nuevo_st != row['Status']:
-                            idx = st.session_state.ventas[st.session_state.ventas['ID'] == row['ID']].index[0]
-                            st.session_state.ventas.at[idx, 'Status'] = nuevo_st
-                            st.session_state.ventas.at[idx, 'Último Movimiento'] = date.today()
-                            guardar_datos(st.session_state.ventas) # GUARDADO AUTOMÁTICO
+                            # Buscar índice real en la sesión
+                            idx_original = st.session_state.ventas[st.session_state.ventas['ID'] == row['ID']].index[0]
+                            st.session_state.ventas.at[idx_original, 'Status'] = nuevo_st
+                            st.session_state.ventas.at[idx_original, 'Último Movimiento'] = date.today().strftime('%Y-%m-%d')
+                            
+                            guardar_datos_nube(st.session_state.ventas)
+                            st.toast("Actualizado en la nube")
                             st.rerun()
     else:
-        st.info("Sin oportunidades activas.")
+        st.info("No hay oportunidades activas.")
 
 with col_r:
     st.subheader("🛠️ Equipos")
@@ -144,5 +144,5 @@ with col_r:
             st.markdown(f"**{cant}x** {eq}")
 
 st.divider()
-st.subheader("📂 Historial")
-st.dataframe(finalizados[['Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado']], use_container_width=True)
+st.subheader("📂 Historial (Ultimos 10)")
+st.table(finalizados.tail(10)[['Cliente', 'Tipo de Solución', 'Status']])
