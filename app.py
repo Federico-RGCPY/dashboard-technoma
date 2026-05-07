@@ -26,7 +26,6 @@ def cargar_datos():
         df = conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(how="all")
         df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
         df['Último Movimiento'] = pd.to_datetime(df['Último Movimiento'], errors='coerce')
-        # Asegurar que el monto sea numérico
         df['Monto Est.'] = pd.to_numeric(df['Monto Est.'], errors='coerce').fillna(0)
         return df
     except:
@@ -44,7 +43,7 @@ opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Posterga
 
 st.title("📋 Pipeline de Ventas RGC")
 
-# SIDEBAR: REGISTRO Y EXPORTACIÓN
+# SIDEBAR
 with st.sidebar:
     st.header("📝 Nueva Oportunidad")
     with st.form("reg", clear_on_submit=True):
@@ -52,7 +51,7 @@ with st.sidebar:
         cliente = st.text_input("Cliente")
         equipo = st.text_input("Equipo")
         monto = st.number_input("Monto ($)", min_value=0)
-        cierre = st.date_input("Cierre Estimado")
+        cierre_form = st.date_input("Cierre Estimado")
         if st.form_submit_button("Registrar"):
             if vendedor and cliente:
                 nueva_fila = pd.DataFrame([{
@@ -64,7 +63,7 @@ with st.sidebar:
                     "Tipo de Solución": equipo,
                     "Monto Est.": monto,
                     "Status": "Negociando",
-                    "Cierre Estimado": pd.to_datetime(cierre)
+                    "Cierre Estimado": pd.to_datetime(cierre_form)
                 }])
                 df = pd.concat([df, nueva_fila], ignore_index=True)
                 guardar_datos(df)
@@ -92,7 +91,6 @@ with col_izq:
     st.subheader("🚀 Oportunidades en Gestión")
     if not activos.empty:
         activos['Mes_Txt'] = activos['Cierre Estimado'].dt.strftime('%B %Y')
-        # Ordenar por fecha de cierre
         meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_Txt'].unique()
         
         for mes in meses_ordenados:
@@ -101,65 +99,11 @@ with col_izq:
             for i, row in items.iterrows():
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})"):
                     # Alarma 10 días
-                    dias = (date.today() - row['Último Movimiento'].date()).days
-                    if dias >= 10:
-                        st.markdown(f'<div class="alerta-roja">🚨 {dias} días sin seguimiento</div>', unsafe_allow_html=True)
+                    dias_atraso = (date.today() - row['Último Movimiento'].date()).days
+                    if dias_atraso >= 10:
+                        st.markdown(f'<div class="alerta-roja">🚨 {dias_atraso} días sin seguimiento</div>', unsafe_allow_html=True)
                     
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.write(f"**Ejecutivo:** {row['Ejecutivo Comercial']}")
-                        st.write(f"**Creado:** {row['Fecha Creación']}")
-                    with c2:
-                        nuevo_st = st.selectbox("Actualizar Estado", opciones_status, 
-                                              index=opciones_status.index(row['Status']), 
-                                              key=f"act_{row['ID']}")
-                        if nuevo_st != row['Status']:
-                            df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st
-                            df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
-                            guardar_datos(df)
-                            st.rerun()
-    else:
-        st.info("No hay oportunidades activas.")
-
-with col_der:
-    st.subheader("📊 Desempeño")
-    
-    if not activos.empty:
-        # 1. Desempeño por Ejecutivo
-        st.markdown("**Pipeline por Ejecutivo:**")
-        por_vendedor = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().sort_values(ascending=False)
-        for vend, monto in por_vendedor.items():
-            st.write(f"👤 **{vend}:** ${monto:,.0f}")
-        
-        st.divider()
-        
-        # 2. Resumen por Equipos
-        st.markdown("**Mezcla de Equipos:**")
-        por_equipo = activos['Tipo de Solución'].value_counts()
-        for eq, cant in por_equipo.items():
-            st.write(f"🛠️ {cant}x {eq}")
-    else:
-        st.write("No hay datos para mostrar.")
-
-st.divider()
-
-# SECCIÓN DE RECUPERACIÓN
-st.subheader("📂 Archivo Histórico")
-historico = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
-
-if not historico.empty:
-    for st_tipo in ["Postergado", "Ganado", "Perdido"]:
-        filtro = historico[historico['Status'] == st_tipo]
-        if not filtro.empty:
-            with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
-                for i, row in filtro.iterrows():
-                    col_a, col_b = st.columns([3, 1])
-                    col_a.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})")
-                    nuevo_st_h = col_b.selectbox("Reactivar", opciones_status, 
-                                               index=opciones_status.index(row['Status']), 
-                                               key=f"hist_{row['ID']}")
-                    if nuevo_st_h != row['Status']:
-                        df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st_h
-                        df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
-                        guardar_datos(df)
-                        st.rerun()
+                    col_info, col_edicion = st.columns(2)
+                    with col_info:
+                        st.write(f"👤 **Vendedor:** {row['Ejecutivo Comercial']}")
+                        st.write(
