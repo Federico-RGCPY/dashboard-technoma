@@ -3,74 +3,59 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, date
 
-# --- CONFIGURACIÓN INICIAL ---
-st.set_page_config(page_title="RGC Technoma", layout="wide")
+st.set_page_config(page_title="RGC - Persistencia Total", layout="wide")
 
-# URL de tu Sheet - Verifica que sea la correcta
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
+# URL de tu Sheet
+URL_SHEET = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
-# --- ESTILOS ---
-st.markdown("""
-    <style>
-    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 5px; font-weight: bold; margin: 15px 0; }
-    .stMetric { background-color: #f0f2f6; padding: 15px; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
+# Conexión
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- CONEXIÓN ---
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error("Error al configurar la conexión de Google Sheets.")
-    st.stop()
-
-# --- FUNCIONES ---
-def cargar_datos():
+# --- FUNCIÓN DE CARGA ---
+def cargar():
     try:
-        # ttl=0 evita que los datos se queden pegados al refrescar
-        df = conn.read(spreadsheet=SHEET_URL, ttl=0)
+        # ttl=0 es vital para que al refrescar lea lo nuevo de Google
+        df = conn.read(spreadsheet=URL_SHEET, ttl=0)
         return df.dropna(how="all")
-    except Exception as e:
-        st.warning("No se pudo leer la base de datos o está vacía.")
+    except:
         return pd.DataFrame(columns=['ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'])
 
-def guardar_datos(df_nuevo):
+# --- FUNCIÓN DE GUARDADO (Corregida para evitar error de Auth) ---
+def guardar(dataframe):
     try:
-        # Convertimos a strings y limpiamos nulos
-        df_save = df_nuevo.astype(str).replace("nan", "")
+        # Limpieza de datos: Convertimos todo a texto y quitamos valores vacíos extraños
+        df_limpio = dataframe.astype(str).replace("nan", "")
         
-        # Intentamos actualizar usando el método directo del cliente
-        # Esto a veces bypasses la restricción de la conexión estándar
-        conn.update(spreadsheet=SHEET_URL, data=df_save)
-        st.toast("✅ Sincronizado")
+        # Intentamos el guardado especificando que es la primera pestaña
+        # Si tu pestaña se llama distinto a "Hoja 1", cámbialo aquí:
+        conn.update(spreadsheet=URL_SHEET, worksheet="Hoja 1", data=df_limpio)
+        st.toast("✅ Sincronizado con Google Sheets")
         return True
     except Exception as e:
-        st.error("🔒 Error de Autenticación de Google")
-        st.info("""
-        **Para solucionar esto definitivamente:**
-        1. En tu Google Sheet, ve a **Compartir**.
-        2. Si tienes un correo de cuenta de servicio (ej: `tu-app@...gserviceaccount.com`), agrégalo como Editor.
-        3. Si no, asegúrate de que el enlace esté en **'Cualquier persona con el enlace'** Y **'Editor'**.
-        """)
-        return False
+        # Si falla por nombre de hoja, intentamos el método genérico
+        try:
+            conn.update(spreadsheet=URL_SHEET, data=df_limpio)
+            st.toast("✅ Sincronizado (Método 2)")
+            return True
+        except Exception as e2:
+            st.error("Error de Autenticación persistente.")
+            st.info("Intenta esto: En el Excel, escribe algo en la celda A1 y bórralo. Luego reinicia la App.")
+            st.code(str(e2))
+            return False
 
-# --- LÓGICA PRINCIPAL ---
-st.title("📋 Seguimiento de Oportunidades RGC")
+# Ejecución principal
+st.title("📋 Seguimiento RGC")
+df_actual = cargar()
 
-# Carga forzada en cada ejecución
-df = cargar_datos()
-
-# Sidebar: Registro
+# Formulario lateral
 with st.sidebar:
-    st.header("📝 Nuevo Registro")
-    with st.form("registro", clear_on_submit=True):
+    st.header("Nuevo Registro")
+    with st.form("form_nuevo", clear_on_submit=True):
         eje = st.text_input("Ejecutivo")
         cli = st.text_input("Cliente")
-        sol = st.text_input("Solución/Equipo")
-        mon = st.number_input("Monto ($)", min_value=0)
-        cie = st.date_input("Cierre Estimado")
-        
-        if st.form_submit_button("Guardar"):
+        sol = st.text_input("Equipo")
+        mon = st.number_input("Monto", min_value=0)
+        if st.form_submit_button("Registrar"):
             if eje and cli:
                 nueva_fila = pd.DataFrame([{
                     "ID": str(int(datetime.now().timestamp())),
@@ -81,49 +66,14 @@ with st.sidebar:
                     "Tipo de Solución": sol,
                     "Monto Est.": str(mon),
                     "Status": "Negociando",
-                    "Cierre Estimado": str(cie)
+                    "Cierre Estimado": str(date.today())
                 }])
-                df_final = pd.concat([df, nueva_fila], ignore_index=True)
-                if guardar_datos(df_final):
-                    st.success("Guardado correctamente")
+                df_final = pd.concat([df_actual, nueva_fila], ignore_index=True)
+                if guardar(df_final):
                     st.rerun()
 
-# Panel de Visualización
-if not df.empty:
-    # Formateo de datos
-    df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
-    df['Mes_Año'] = df['Cierre Estimado'].dt.strftime('%B %Y')
-    
-    activos = df[df['Status'].isin(['Negociando', 'Bajo', 'Medio'])].sort_values('Cierre Estimado')
-    
-    # Métricas
-    c1, c2 = st.columns(2)
-    monto_total = pd.to_numeric(activos['Monto Est.'], errors='coerce').sum()
-    c1.metric("Pipeline Total", f"${monto_total:,.0f}")
-    c2.metric("Oportunidades", len(activos))
-    
-    st.divider()
-
-    # Despliegue por Meses
-    for mes in activos['Mes_Año'].unique():
-        st.markdown(f'<div class="header-mes">{mes.upper()}</div>', unsafe_allow_html=True)
-        items = activos[activos['Mes_Año'] == mes]
-        
-        for i, row in items.iterrows():
-            with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']}"):
-                # Alarma 10 días
-                u_mov = pd.to_datetime(row['Último Movimiento']).date()
-                atraso = (date.today() - u_mov).days
-                if atraso >= 10:
-                    st.error(f"🚨 {atraso} días sin seguimiento")
-                
-                opciones = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
-                nuevo_st = st.selectbox("Estado", opciones, index=opciones.index(row['Status']) if row['Status'] in opciones else 0, key=f"st_{row['ID']}")
-                
-                if nuevo_st != row['Status']:
-                    df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st
-                    df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = str(date.today())
-                    if guardar_datos(df):
-                        st.rerun()
+# Mostrar datos
+if not df_actual.empty:
+    st.dataframe(df_actual, use_container_width=True)
 else:
-    st.info("No hay datos cargados. Registra uno nuevo para empezar.")
+    st.info("Base de datos vacía en Google Sheets.")
