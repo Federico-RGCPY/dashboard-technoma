@@ -79,15 +79,33 @@ with st.sidebar:
                 st.success("¡Guardado en Google Sheets!")
                 st.rerun()
 
-# --- PROCESAMIENTO ---
+# --- PROCESAMIENTO SEGURO ---
 df_act = st.session_state.ventas.copy()
-if not df_act.empty:
-    df_act['Cierre Estimado'] = pd.to_datetime(df_act['Cierre Estimado'])
-    df_act['Mes_Año_Txt'] = df_act['Cierre Estimado'].dt.strftime('%B %Y')
-    df_act = df_act.sort_values(by='Cierre Estimado')
 
-activos = df_act[df_act['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
-finalizados = df_act[df_act['Status'].isin(['Ganado', 'Perdido', 'Postergado'])]
+# Verificar si la columna existe antes de transformar
+if not df_act.empty and 'Cierre Estimado' in df_act.columns:
+    try:
+        df_act['Cierre Estimado'] = pd.to_datetime(df_act['Cierre Estimado'], errors='coerce')
+        # Eliminar filas donde la fecha no se pudo convertir
+        df_act = df_act.dropna(subset=['Cierre Estimado'])
+        
+        df_act['Mes_Año_Txt'] = df_act['Cierre Estimado'].dt.strftime('%B %Y')
+        df_act = df_act.sort_values(by='Cierre Estimado')
+        
+        activos = df_act[df_act['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
+        finalizados = df_act[df_act['Status'].isin(['Ganado', 'Perdido', 'Postergado'])]
+    except Exception as e:
+        st.error(f"Error al procesar fechas: {e}")
+        activos = pd.DataFrame()
+        finalizados = pd.DataFrame()
+else:
+    # Si la hoja está vacía o no tiene los encabezados correctos
+    activos = pd.DataFrame()
+    finalizados = pd.DataFrame()
+    if df_act.empty:
+        st.info("💡 La base de datos está vacía. Registra tu primera oportunidad en el panel de la izquierda.")
+    else:
+        st.warning("⚠️ Error de configuración: No se encuentra la columna 'Cierre Estimado' en el Google Sheet.")
 
 # --- DASHBOARD ---
 c1, c2, c3, c4 = st.columns(4)
