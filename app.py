@@ -1,122 +1,90 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import plotly.express as px
 from datetime import datetime, date
 
-# 1. Configuración de página
-st.set_page_config(page_title="RGC Tracking", layout="wide")
+# 1. Configuración inicial
+st.set_page_config(page_title="RGC Seguimiento", layout="wide")
 
-# 2. Enlace de tu Google Sheet
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
-
-# 3. Conexión
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# --- FUNCIONES DE PERSISTENCIA ---
-def cargar_datos():
-    # ttl=0 obliga a leer datos nuevos siempre, sin caché
-    return conn.read(spreadsheet=SHEET_URL, ttl=0).dropna(how="all")
-
-def guardar_datos(df_nuevo):
-    # Esto sobreescribe la hoja con los nuevos datos
-    conn.update(spreadsheet=SHEET_URL, data=df_nuevo)
-
-# CARGA INICIAL
-df_original = cargar_datos()
-
-# 4. Estilo Visual
-st.markdown("""
-    <style>
-    [data-testid="stMetricValue"] { color: #800020 !important; }
-    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 5px; margin: 15px 0; font-weight: bold; }
-    .stButton>button { background-color: #800020; color: white; width: 100%; }
-    </style>
-    """, unsafe_allow_html=True)
+# URL de tu Sheet
+URL = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
 st.title("📋 Seguimiento de Oportunidades RGC")
+st.markdown("<style>.stMetric {background-color: #f8f9fa; border-radius: 10px; padding: 15px; border: 1px solid #eee;}</style>", unsafe_allow_html=True)
 
-# --- BARRA LATERAL: REGISTRO ---
+# 2. Conexión
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 3. Carga de datos (con manejo de error si está vacío)
+try:
+    df = conn.read(spreadsheet=URL, ttl=0).dropna(how="all")
+except Exception:
+    df = pd.DataFrame(columns=['ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'])
+
+# --- FORMULARIO DE REGISTRO ---
 with st.sidebar:
-    st.header("📝 Nuevo Registro")
-    with st.form("form_registro", clear_on_submit=True):
-        ejecutivo = st.text_input("Ejecutivo")
-        cliente = st.text_input("Cliente")
-        equipo = st.text_input("Equipo / Solución")
-        monto = st.number_input("Monto ($)", min_value=0)
-        cierre = st.date_input("Fecha Cierre Est.")
-        status_ini = st.selectbox("Status", ["Negociando", "Bajo", "Medio"])
+    st.header("Nuevo Registro")
+    with st.form("registro_rgc", clear_on_submit=True):
+        eje = st.text_input("Ejecutivo")
+        cli = st.text_input("Cliente")
+        sol = st.text_input("Equipo / Solución")
+        mon = st.number_input("Monto ($)", min_value=0)
+        cie = st.date_input("Cierre Estimado")
         
-        if st.form_submit_button("Guardar en Nube"):
-            if ejecutivo and cliente:
-                nueva_fila = pd.DataFrame([{
-                    'ID': int(datetime.now().timestamp()),
-                    'Fecha Creación': date.today().strftime('%Y-%m-%d'),
-                    'Último Movimiento': date.today().strftime('%Y-%m-%d'),
-                    'Ejecutivo Comercial': ejecutivo,
-                    'Cliente': cliente,
-                    'Tipo de Solución': equipo,
-                    'Monto Est.': monto,
-                    'Status': status_ini,
-                    'Cierre Estimado': cierre.strftime('%Y-%m-%d')
+        if st.form_submit_button("Guardar en Google Sheets"):
+            if eje and cli:
+                nuevo_dato = pd.DataFrame([{
+                    "ID": int(datetime.now().timestamp()),
+                    "Fecha Creación": str(date.today()),
+                    "Último Movimiento": str(date.today()),
+                    "Ejecutivo Comercial": eje,
+                    "Cliente": cli,
+                    "Tipo de Solución": sol,
+                    "Monto Est.": mon,
+                    "Status": "Negociando",
+                    "Cierre Estimado": str(cie)
                 }])
-                
-                # Combinar datos viejos con el nuevo
-                df_actualizado = pd.concat([df_original, nueva_fila], ignore_index=True)
-                guardar_datos(df_actualizado)
-                st.success("✅ Sincronizado con Google Sheets")
+                df_final = pd.concat([df, nuevo_dato], ignore_index=True)
+                # Actualizar Nube
+                conn.update(spreadsheet=URL, data=df_final)
+                st.success("¡Datos sincronizados!")
                 st.rerun()
 
-# --- CUERPO PRINCIPAL ---
-if not df_original.empty:
-    # Preparar datos para visualización
-    df_viz = df_original.copy()
-    df_viz['Cierre Estimado'] = pd.to_datetime(df_viz['Cierre Estimado'])
-    df_viz['Mes_Año'] = df_viz['Cierre Estimado'].dt.strftime('%B %Y')
-    df_viz = df_viz.sort_values('Cierre Estimado')
-
-    # Filtros para el Pipeline
-    activos = df_viz[df_viz['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
+# --- VISUALIZACIÓN ---
+if not df.empty:
+    # Asegurar formato de fechas
+    df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
+    df['Mes'] = df['Cierre Estimado'].dt.strftime('%B %Y')
+    
+    activos = df[df['Status'].isin(['Negociando', 'Bajo', 'Medio'])]
     
     # Métricas
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Pipeline Activo", f"${activos['Monto Est.'].sum():,.0f}")
-    m2.metric("Oportunidades", len(activos))
-    m3.metric("Equipos en Neg.", activos['Tipo de Solución'].nunique())
+    col1, col2 = st.columns(2)
+    col1.metric("Pipeline Total", f"${activos['Monto Est.'].sum():,.0f}")
+    col2.metric("Proyectos Activos", len(activos))
 
-    st.divider()
-
-    # Listado por Meses
-    col_main, col_summary = st.columns([3, 1])
-    
-    with col_main:
-        for mes in activos['Mes_Año'].unique():
-            st.markdown(f'<div class="header-mes">{mes.upper()}</div>', unsafe_allow_html=True)
-            items = activos[activos['Mes_Año'] == mes]
-            
-            for i, row in items.iterrows():
-                # Alarma 10 días
-                dias = (date.today() - pd.to_datetime(row['Último Movimiento']).date()).days
-                label_alerta = f"⚠️ {dias} días sin cambios" if dias >= 10 else f"✅ {dias} días"
+    # Agrupación por Mes
+    for mes in activos['Mes'].unique():
+        st.subheader(f"📅 {mes.upper()}")
+        items = activos[activos['Mes'] == mes]
+        
+        for i, r in items.iterrows():
+            with st.expander(f"📌 {r['Cliente']} - {r['Tipo de Solución']} (${r['Monto Est.']:,})"):
+                # Alarma 10 días (comparando contra Último Movimiento)
+                ultimo_mov = pd.to_datetime(r['Último Movimiento']).date()
+                dias = (date.today() - ultimo_mov).days
                 
-                with st.expander(f"{row['Cliente']} | {row['Tipo de Solución']} ({label_alerta})"):
-                    c_edit1, c_edit2 = st.columns(2)
-                    
-                    nuevo_st = c_edit1.selectbox("Cambiar Estado", 
-                                               ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"],
-                                               index=["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"].index(row['Status']),
-                                               key=f"st_{row['ID']}")
-                    
-                    if nuevo_st != row['Status']:
-                        # Actualizar en el DataFrame original
-                        df_original.loc[df_original['ID'] == row['ID'], 'Status'] = nuevo_st
-                        df_original.loc[df_original['ID'] == row['ID'], 'Último Movimiento'] = date.today().strftime('%Y-%m-%d')
-                        guardar_datos(df_original)
-                        st.rerun()
-
-    with col_summary:
-        st.subheader("🛠️ Inventario Negoc.")
-        st.write(activos['Tipo de Solución'].value_counts())
-
+                if dias >= 10:
+                    st.error(f"🚨 ALERTA: {dias} días sin novedades.")
+                
+                # Selector de Estado
+                opciones = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
+                nuevo_st = st.selectbox("Actualizar Estado", opciones, index=opciones.index(r['Status']), key=f"key_{r['ID']}")
+                
+                if nuevo_st != r['Status']:
+                    df.loc[df['ID'] == r['ID'], 'Status'] = nuevo_st
+                    df.loc[df['ID'] == r['ID'], 'Último Movimiento'] = str(date.today())
+                    conn.update(spreadsheet=URL, data=df)
+                    st.rerun()
 else:
-    st.info("Aún no hay datos en Google Sheets. Usa el panel de la izquierda para registrar.")
+    st.info("La base de datos está vacía. Registre la primera oportunidad para comenzar.")
