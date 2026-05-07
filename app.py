@@ -98,7 +98,6 @@ with col_izq:
             items = activos[activos['Mes_Txt'] == mes]
             for i, row in items.iterrows():
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})"):
-                    # Alarma 10 días
                     dias_atraso = (date.today() - row['Último Movimiento'].date()).days
                     if dias_atraso >= 10:
                         st.markdown(f'<div class="alerta-roja">🚨 {dias_atraso} días sin seguimiento</div>', unsafe_allow_html=True)
@@ -106,4 +105,62 @@ with col_izq:
                     col_info, col_edicion = st.columns(2)
                     with col_info:
                         st.write(f"👤 **Vendedor:** {row['Ejecutivo Comercial']}")
-                        st.write(
+                        # Actualizar Fecha Cierre
+                        nueva_fecha = st.date_input("Actualizar Fecha Cierre", value=row['Cierre Estimado'].date(), key=f"date_{row['ID']}")
+                        if pd.to_datetime(nueva_fecha) != row['Cierre Estimado']:
+                            idx = df[df['ID'] == row['ID']].index[0]
+                            df.at[idx, 'Cierre Estimado'] = pd.to_datetime(nueva_fecha)
+                            df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
+                            guardar_datos(df)
+                            st.rerun()
+
+                    with col_edicion:
+                        nuevo_st = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']), key=f"act_{row['ID']}")
+                        if nuevo_st != row['Status']:
+                            idx = df[df['ID'] == row['ID']].index[0]
+                            df.at[idx, 'Status'] = nuevo_st
+                            df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
+                            guardar_datos(df)
+                            st.rerun()
+    else:
+        st.info("No hay oportunidades activas.")
+
+with col_der:
+    st.subheader("📊 Desempeño")
+    if not activos.empty:
+        st.markdown("**Pipeline por Ejecutivo:**")
+        por_vendedor = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().sort_values(ascending=False)
+        for vend, monto in por_vendedor.items():
+            st.write(f"👤 {vend}: ${monto:,.0f}")
+        st.divider()
+        st.markdown("**Mezcla de Equipos:**")
+        por_equipo = activos['Tipo de Solución'].value_counts()
+        for eq, cant in por_equipo.items():
+            st.write(f"🛠️ {cant}x {eq}")
+
+st.divider()
+
+# SECCIÓN DE RECUPERACIÓN
+st.subheader("📂 Archivo Histórico")
+historico = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
+if not historico.empty:
+    for st_tipo in ["Postergado", "Ganado", "Perdido"]:
+        filtro = historico[historico['Status'] == st_tipo]
+        if not filtro.empty:
+            with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
+                for i, row in filtro.iterrows():
+                    col_txt, col_fecha, col_st = st.columns([2, 1, 1])
+                    col_txt.write(f"**{row['Cliente']}** - {row['Tipo de Solución']}")
+                    
+                    f_hist = col_fecha.date_input("Fecha Cierre", value=row['Cierre Estimado'].date(), key=f"hdate_{row['ID']}")
+                    if pd.to_datetime(f_hist) != row['Cierre Estimado']:
+                        df.loc[df['ID'] == row['ID'], 'Cierre Estimado'] = pd.to_datetime(f_hist)
+                        guardar_datos(df)
+                        st.rerun()
+
+                    nuevo_st_h = col_st.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"hist_{row['ID']}")
+                    if nuevo_st_h != row['Status']:
+                        df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st_h
+                        df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
+                        guardar_datos(df)
+                        st.rerun()
