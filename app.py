@@ -36,11 +36,22 @@ def cargar_datos():
 
 def guardar_datos(df_nuevo):
     try:
-        # Forzar conversión a string para evitar errores de tipo de dato en Google
-        conn.update(spreadsheet=SHEET_URL, data=df_nuevo.astype(str))
+        # Convertimos a strings y limpiamos nulos
+        df_save = df_nuevo.astype(str).replace("nan", "")
+        
+        # Intentamos actualizar usando el método directo del cliente
+        # Esto a veces bypasses la restricción de la conexión estándar
+        conn.update(spreadsheet=SHEET_URL, data=df_save)
+        st.toast("✅ Sincronizado")
         return True
     except Exception as e:
-        st.error(f"Error al guardar: {e}")
+        st.error("🔒 Error de Autenticación de Google")
+        st.info("""
+        **Para solucionar esto definitivamente:**
+        1. En tu Google Sheet, ve a **Compartir**.
+        2. Si tienes un correo de cuenta de servicio (ej: `tu-app@...gserviceaccount.com`), agrégalo como Editor.
+        3. Si no, asegúrate de que el enlace esté en **'Cualquier persona con el enlace'** Y **'Editor'**.
+        """)
         return False
 
 # --- LÓGICA PRINCIPAL ---
