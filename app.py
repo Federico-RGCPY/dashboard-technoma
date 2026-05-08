@@ -1,20 +1,27 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import plotly.express as px
 from datetime import datetime, date
 import io
 
 # 1. CONFIGURACIÓN
-st.set_page_config(page_title="RGC Dashboard Profesional", layout="wide")
+st.set_page_config(page_title="RGC Dashboard VIP", layout="wide")
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
+
+# Traducción de meses
+MESES_ES = {
+    "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
+    "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
+    "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
+}
 
 # Estilos visuales
 st.markdown("""
     <style>
-    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; }
+    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
     .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; }
-    .alerta-roja { background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; border-left: 5px solid #dc3545; margin-bottom: 10px; }
-    h1 { color: #800020 !important; }
+    h1 { color: #800020 !important; font-weight: 800; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,11 +48,11 @@ def guardar_datos(df_save):
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
-st.title("📋 Pipeline de Ventas RGC")
+st.title("📋 Pipeline Estratégico RGC")
 
 # SIDEBAR
 with st.sidebar:
-    st.header("📝 Nueva Oportunidad")
+    st.header("📝 Registro")
     with st.form("reg", clear_on_submit=True):
         vendedor = st.text_input("Ejecutivo")
         cliente = st.text_input("Cliente")
@@ -68,12 +75,6 @@ with st.sidebar:
                 df = pd.concat([df, nueva_fila], ignore_index=True)
                 guardar_datos(df)
                 st.rerun()
-    
-    if not df.empty:
-        st.divider()
-        towrite = io.BytesIO()
-        df.to_excel(towrite, index=False, engine='xlsxwriter')
-        st.download_button(label="📥 Descargar Excel", data=towrite.getvalue(), file_name=f"Pipeline_RGC_{date.today()}.xlsx")
 
 # MÉTRICAS
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
@@ -85,28 +86,31 @@ m3.metric("Equipos", activos['Tipo de Solución'].nunique())
 st.divider()
 
 # COLUMNAS PRINCIPALES
-col_izq, col_der = st.columns([2.5, 1])
+col_izq, col_der = st.columns([2, 1.2])
 
 with col_izq:
-    st.subheader("🚀 Oportunidades en Gestión")
+    st.subheader("🚀 Gestión de Oportunidades")
     if not activos.empty:
-        activos['Mes_Txt'] = activos['Cierre Estimado'].dt.strftime('%B %Y')
-        meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_Txt'].unique()
+        # Formateo de Meses en Español
+        activos['Mes_Nombre'] = activos['Cierre Estimado'].dt.strftime('%B')
+        activos['Anio'] = activos['Cierre Estimado'].dt.strftime('%Y')
+        activos['Mes_ES'] = activos['Mes_Nombre'].map(MESES_ES) + " " + activos['Anio']
+        
+        meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_ES'].unique()
         
         for mes in meses_ordenados:
-            st.markdown(f'<div class="header-mes">{mes.upper()}</div>', unsafe_allow_html=True)
-            items = activos[activos['Mes_Txt'] == mes]
+            st.markdown(f'<div class="header-mes">{mes}</div>', unsafe_allow_html=True)
+            items = activos[activos['Mes_ES'] == mes]
             for i, row in items.iterrows():
+                # Formato de fecha legible 31/05/2026
+                fecha_formateada = row['Cierre Estimado'].strftime('%d/%m/%Y')
+                
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})"):
-                    dias_atraso = (date.today() - row['Último Movimiento'].date()).days
-                    if dias_atraso >= 10:
-                        st.markdown(f'<div class="alerta-roja">🚨 {dias_atraso} días sin seguimiento</div>', unsafe_allow_html=True)
-                    
                     col_info, col_edicion = st.columns(2)
                     with col_info:
                         st.write(f"👤 **Vendedor:** {row['Ejecutivo Comercial']}")
-                        # Actualizar Fecha Cierre
-                        nueva_fecha = st.date_input("Actualizar Fecha Cierre", value=row['Cierre Estimado'].date(), key=f"date_{row['ID']}")
+                        st.write(f"📅 **Cierre actual:** {fecha_formateada}")
+                        nueva_fecha = st.date_input("Cambiar Fecha", value=row['Cierre Estimado'].date(), key=f"date_{row['ID']}")
                         if pd.to_datetime(nueva_fecha) != row['Cierre Estimado']:
                             idx = df[df['ID'] == row['ID']].index[0]
                             df.at[idx, 'Cierre Estimado'] = pd.to_datetime(nueva_fecha)
@@ -126,17 +130,26 @@ with col_izq:
         st.info("No hay oportunidades activas.")
 
 with col_der:
-    st.subheader("📊 Desempeño")
+    st.subheader("📊 Gráficos de Desempeño")
     if not activos.empty:
-        st.markdown("**Pipeline por Ejecutivo:**")
-        por_vendedor = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().sort_values(ascending=False)
-        for vend, monto in por_vendedor.items():
-            st.write(f"👤 {vend}: ${monto:,.0f}")
+        # GRÁFICO DE DONA MODERNO
+        df_vendedores = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
+        fig = px.pie(df_vendedores, values='Monto Est.', names='Ejecutivo Comercial', 
+                     hole=0.5, # Hace que sea una dona
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
+        
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        fig.update_layout(showlegend=False, margin=dict(t=0, b=0, l=0, r=0), height=300)
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
         st.divider()
         st.markdown("**Mezcla de Equipos:**")
         por_equipo = activos['Tipo de Solución'].value_counts()
         for eq, cant in por_equipo.items():
             st.write(f"🛠️ {cant}x {eq}")
+    else:
+        st.write("Sin datos para graficar.")
 
 st.divider()
 
@@ -149,15 +162,9 @@ if not historico.empty:
         if not filtro.empty:
             with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
                 for i, row in filtro.iterrows():
-                    col_txt, col_fecha, col_st = st.columns([2, 1, 1])
-                    col_txt.write(f"**{row['Cliente']}** - {row['Tipo de Solución']}")
-                    
-                    f_hist = col_fecha.date_input("Fecha Cierre", value=row['Cierre Estimado'].date(), key=f"hdate_{row['ID']}")
-                    if pd.to_datetime(f_hist) != row['Cierre Estimado']:
-                        df.loc[df['ID'] == row['ID'], 'Cierre Estimado'] = pd.to_datetime(f_hist)
-                        guardar_datos(df)
-                        st.rerun()
-
+                    col_txt, col_st = st.columns([3, 1])
+                    fecha_h = row['Cierre Estimado'].strftime('%d/%m/%Y')
+                    col_txt.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Cierre: {fecha_h})")
                     nuevo_st_h = col_st.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"hist_{row['ID']}")
                     if nuevo_st_h != row['Status']:
                         df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st_h
