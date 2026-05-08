@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px  # <-- Esta línea faltaba y causaba el error
+import plotly.express as px
 from datetime import datetime, date
 import io
 
@@ -36,7 +36,6 @@ def cargar_datos():
     try:
         df = conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(how="all")
         df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
-        # Buscamos la columna de movimiento de forma flexible
         col_mov = 'Último Movimiento' if 'Último Movimiento' in df.columns else 'Últimiento Movimiento'
         df['Último Movimiento'] = pd.to_datetime(df[col_mov], errors='coerce')
         df['Monto Est.'] = pd.to_numeric(df['Monto Est.'], errors='coerce').fillna(0)
@@ -50,7 +49,7 @@ def guardar_datos(df_save):
     df_to_push['Último Movimiento'] = df_to_push['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_to_push.astype(str))
 
-# --- INICIO LÓGICA APP ---
+# --- LÓGICA PRINCIPAL ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
@@ -88,7 +87,7 @@ with st.sidebar:
         df.to_excel(towrite, index=False)
         st.download_button(label="📥 Descargar Excel", data=towrite.getvalue(), file_name=f"Pipeline_RGC_{date.today()}.xlsx")
 
-# MÉTRICAS
+# KPIs
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
 with m1:
@@ -137,13 +136,48 @@ with col_izq:
     else:
         st.info("Sin registros activos.")
 
-# GRÁFICO (DERECHA) - ESTILO 3D EXPLODED
+# GRÁFICO (DERECHA)
 with col_der:
     st.subheader("📊 Desempeño por Ejecutivo")
     if not activos.empty:
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
-        # Efecto Exploded: Cada tajada se separa del centro
         fig = go.Figure(data=[go.Pie(
             labels=df_g['Ejecutivo Comercial'],
-            values=df_g['
+            values=df_g['Monto Est.'],
+            hole=0,
+            pull=[0.1] * len(df_g),
+            textinfo='label+percent',
+            textposition='outside', 
+            marker=dict(colors=px.colors.qualitative.Bold, line=dict(color='#FFFFFF', width=2))
+        )])
+        
+        fig.update_layout(showlegend=False, margin=dict(t=50, b=50, l=80, r=80), height=500)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.divider()
+        st.markdown("**Resumen Numérico:**")
+        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
+            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
+    else:
+        st.write("No hay datos para graficar.")
+
+# HISTÓRICO
+st.divider()
+st.subheader("📂 Archivo Histórico")
+hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
+if not hist.empty:
+    for st_tipo in ["Postergado", "Ganado", "Perdido"]:
+        filtro = hist[hist['Status'] == st_tipo]
+        if not filtro.empty:
+            with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
+                for i, row in filtro.iterrows():
+                    col_a, col_b = st.columns([3, 1])
+                    f_v = row['Cierre Estimado'].strftime('%d/%m/%Y')
+                    col_a.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Vendedor: {row['Ejecutivo Comercial']} | Cierre: {f_v})")
+                    new_s_h = col_b.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"h_{row['ID']}")
+                    if new_s_h != row['Status']:
+                        df.loc[df['ID'] == row['ID'], 'Status'] = new_s_h
+                        df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
+                        guardar_datos(df)
+                        st.rerun()
