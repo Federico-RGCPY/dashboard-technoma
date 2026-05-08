@@ -6,30 +6,26 @@ import plotly.express as px
 from datetime import datetime, date
 import io
 
-# 1. CONFIGURACIÓN DE LA PÁGINA
+# 1. CONFIGURACIÓN
 st.set_page_config(page_title="RGC Dashboard VIP", layout="wide")
-
-# URL de tu Google Sheet
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
-# Diccionario para traducción de meses
 MESES_ES = {
     "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
     "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
     "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
 }
 
-# Estilos CSS
 st.markdown("""
     <style>
-    .header-mes { background-color: #800020; color: white; padding: 12px; border-radius: 8px; margin-top: 25px; font-weight: bold; text-transform: uppercase; }
-    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }
+    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
+    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; }
     h1 { color: #800020 !important; font-weight: 800; }
     .stButton>button { background-color: #800020; color: white; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONEXIÓN Y FUNCIONES
+# 2. CONEXIÓN Y DATOS
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_datos():
@@ -49,7 +45,7 @@ def guardar_datos(df_save):
     df_to_push['Último Movimiento'] = df_to_push['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_to_push.astype(str))
 
-# --- LÓGICA PRINCIPAL ---
+# --- LÓGICA ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
@@ -66,70 +62,40 @@ with st.sidebar:
         cier = st.date_input("Fecha Cierre")
         if st.form_submit_button("Registrar"):
             if vend and clie:
-                nueva = pd.DataFrame([{
-                    "ID": str(int(datetime.now().timestamp())),
-                    "Fecha Creación": date.today().strftime('%Y-%m-%d'),
-                    "Último Movimiento": pd.to_datetime(date.today()),
-                    "Ejecutivo Comercial": vend,
-                    "Cliente": clie,
-                    "Tipo de Solución": equi,
-                    "Monto Est.": mont,
-                    "Status": "Negociando",
-                    "Cierre Estimado": pd.to_datetime(cier)
-                }])
+                nueva = pd.DataFrame([{"ID": str(int(datetime.now().timestamp())), "Fecha Creación": date.today().strftime('%Y-%m-%d'), "Último Movimiento": pd.to_datetime(date.today()), "Ejecutivo Comercial": vend, "Cliente": clie, "Tipo de Solución": equi, "Monto Est.": mont, "Status": "Negociando", "Cierre Estimado": pd.to_datetime(cier)}])
                 df = pd.concat([df, nueva], ignore_index=True)
                 guardar_datos(df)
                 st.rerun()
-    
-    if not df.empty:
-        st.divider()
-        towrite = io.BytesIO()
-        df.to_excel(towrite, index=False)
-        st.download_button(label="📥 Descargar Excel", data=towrite.getvalue(), file_name=f"Pipeline_RGC_{date.today()}.xlsx")
 
 # KPIs
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
-with m1:
-    st.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
-with m2:
-    st.metric("OPORTUNIDADES", len(activos))
-with m3:
-    st.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
+m1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
+m2.metric("OPORTUNIDADES", len(activos))
+m3.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
 
 st.divider()
-
-col_izq, col_der = st.columns([2, 1.3])
+c_izq, c_der = st.columns([2, 1.3])
 
 # GESTIÓN (IZQUIERDA)
-with col_izq:
-    st.subheader("🚀 Seguimiento de Clientes")
+with c_izq:
+    st.subheader("🚀 Seguimiento")
     if not activos.empty:
-        activos['Mes_Nombre'] = activos['Cierre Estimado'].dt.strftime('%B')
-        activos['Anio'] = activos['Cierre Estimado'].dt.strftime('%Y')
-        activos['Mes_ES'] = activos['Mes_Nombre'].map(MESES_ES) + " " + activos['Anio']
-        
-        meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_ES'].unique()
-        
-        for mes in meses_ordenados:
+        activos['Mes_ES'] = activos['Cierre Estimado'].dt.strftime('%B').map(MESES_ES) + " " + activos['Cierre Estimado'].dt.strftime('%Y')
+        for mes in activos.sort_values('Cierre Estimado')['Mes_ES'].unique():
             st.markdown(f'<div class="header-mes">{mes}</div>', unsafe_allow_html=True)
-            items = activos[activos['Mes_ES'] == mes]
-            for i, row in items.iterrows():
+            for i, row in activos[activos['Mes_ES'] == mes].iterrows():
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})"):
-                    with st.form(key=f"edit_{row['ID']}"):
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            new_vend = st.text_input("Ejecutivo", value=row['Ejecutivo Comercial'])
-                            new_mont = st.number_input("Monto ($)", value=float(row['Monto Est.']))
-                        with c2:
-                            new_fech = st.date_input("Cierre", value=row['Cierre Estimado'].date())
-                            new_stat = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        if st.form_submit_button("Guardar Cambios"):
+                    with st.form(key=f"ed_{row['ID']}"):
+                        col1, col2 = st.columns(2)
+                        new_v = col1.text_input("Ejecutivo", value=row['Ejecutivo Comercial'])
+                        new_m = col1.number_input("Monto ($)", value=float(row['Monto Est.']))
+                        new_f = col2.date_input("Cierre", value=row['Cierre Estimado'].date())
+                        new_s = col2.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
+                        if st.form_submit_button("Guardar"):
                             idx = df[df['ID'] == row['ID']].index[0]
-                            df.at[idx, 'Ejecutivo Comercial'] = new_vend
-                            df.at[idx, 'Monto Est.'] = new_mont
-                            df.at[idx, 'Cierre Estimado'] = pd.to_datetime(new_fech)
-                            df.at[idx, 'Status'] = new_stat
+                            df.at[idx, 'Ejecutivo Comercial'], df.at[idx, 'Monto Est.'] = new_v, new_m
+                            df.at[idx, 'Cierre Estimado'], df.at[idx, 'Status'] = pd.to_datetime(new_f), new_s
                             df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
                             guardar_datos(df)
                             st.rerun()
@@ -137,53 +103,38 @@ with col_izq:
         st.info("Sin registros activos.")
 
 # GRÁFICOS (DERECHA)
-with col_der:
+with c_der:
     if not activos.empty:
-        # --- GRÁFICO 1: TORTA 3D EXPLODED ---
-        st.subheader("📊 Desempeño por Ejecutivo")
+        st.subheader("📊 Desempeño")
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
-        fig_pie = go.Figure(data=[go.Pie(
-            labels=df_g['Ejecutivo Comercial'],
-            values=df_g['Monto Est.'],
-            hole=0,
-            pull=[0.1] * len(df_g),
-            textinfo='label+percent',
-            textposition='outside', 
-            marker=dict(colors=px.colors.qualitative.Bold, line=dict(color='#FFFFFF', width=2))
-        )])
-        fig_pie.update_layout(showlegend=False, margin=dict(t=30, b=30, l=80, r=80), height=400)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        fig_p = go.Figure(data=[go.Pie(labels=df_g['Ejecutivo Comercial'], values=df_g['Monto Est.'], pull=[0.1]*len(df_g), textinfo='label+percent', textposition='outside', marker=dict(colors=px.colors.qualitative.Bold, line=dict(color='#FFFFFF', width=2)))])
+        fig_p.update_layout(showlegend=False, margin=dict(t=30,b=30,l=80,r=80), height=380)
+        st.plotly_chart(fig_p, use_container_width=True)
         
-        st.divider()
-
-        # --- GRÁFICO 2: EMBUDO DE VENTAS (FUNNEL) ---
-        st.subheader("🌪️ Embudo de Ventas")
-        # Contamos cuántas oportunidades hay en cada etapa activa
-        etapas_orden = ["Negociando", "Bajo", "Medio", "Ganado"]
-        df_funnel = activos['Status'].value_counts().reset_index()
-        df_funnel.columns = ['Etapa', 'Cantidad']
-        
-        # Asegurar el orden del embudo
-        df_funnel['Etapa'] = pd.Categorical(df_funnel['Etapa'], categories=etapas_orden, ordered=True)
-        df_funnel = df_funnel.sort_values('Etapa')
-
-        fig_funnel = px.funnel(df_funnel, x='Cantidad', y='Etapa', color='Etapa',
-                               color_discrete_sequence=px.colors.sequential.RdBu_r)
-        
-        fig_funnel.update_layout(showlegend=False, height=400, margin=dict(t=20, b=20, l=20, r=20))
-        st.plotly_chart(fig_funnel, use_container_width=True)
-        
-        st.divider()
-        st.markdown("**Resumen Numérico:**")
-        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
-            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
+        st.subheader("🌪️ Embudo")
+        df_f = activos['Status'].value_counts().reset_index()
+        df_f.columns = ['Etapa', 'Cant']
+        fig_f = px.funnel(df_f, x='Cant', y='Etapa', color='Etapa', color_discrete_sequence=px.colors.sequential.RdBu_r)
+        fig_f.update_layout(showlegend=False, height=350, margin=dict(t=20,b=20,l=20,r=20))
+        st.plotly_chart(fig_f, use_container_width=True)
     else:
-        st.write("No hay datos para graficar.")
+        st.write("Sin datos.")
 
 # HISTÓRICO
 st.divider()
 st.subheader("📂 Archivo Histórico")
 hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 if not hist.empty:
-    for st_tipo in ["Postergado", "Ganado", "Perdido"]:
-        filtro = hist[hist['Status'] == st
+    for st_t in ["Postergado", "Ganado", "Perdido"]:
+        f_h = hist[hist['Status'] == st_t]
+        if not f_h.empty:
+            with st.expander(f"Ver {st_t}s ({len(f_h)})"):
+                for i, r in f_h.iterrows():
+                    c_a, c_b = st.columns([3, 1])
+                    c_a.write(f"**{r['Cliente']}** - {r['Tipo de Solución']} ({r['Cierre Estimado'].strftime('%d/%m/%Y')})")
+                    new_h = c_b.selectbox("Reactivar", opciones_status, index=opciones_status.index(r['Status']), key=f"h_{r['ID']}")
+                    if new_h != r['Status']:
+                        df.loc[df['ID'] == r['ID'], 'Status'] = new_h
+                        df.loc[df['ID'] == r['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
+                        guardar_datos(df)
+                        st.rerun()
