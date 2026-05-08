@@ -18,194 +18,164 @@ MESES_ES = {
     "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
 }
 
-# Estilos CSS para personalización visual
+# Estilos CSS
 st.markdown("""
     <style>
-    .header-mes { background-color: #800020; color: white; padding: 12px; border-radius: 8px; margin-top: 25px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+    .header-mes { background-color: #800020; color: white; padding: 12px; border-radius: 8px; margin-top: 25px; font-weight: bold; text-transform: uppercase; }
     .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }
     h1 { color: #800020 !important; font-weight: 800; }
-    .stButton>button { background-color: #800020; color: white; border-radius: 5px; width: 100%; }
-    .stExpander { border: 1px solid #dee2e6; border-radius: 10px; background-color: white; margin-bottom: 10px; }
+    .stButton>button { background-color: #800020; color: white; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. CONEXIÓN Y FUNCIONES DE DATOS
+# 2. CONEXIÓN Y FUNCIONES
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def cargar_datos():
     try:
-        # Leemos sin caché para ver cambios al instante
         df = conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(how="all")
-        # Aseguramos formatos correctos
         df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
-        df['Último Movimiento'] = pd.to_datetime(df['Último Movimiento'], errors='coerce')
+        df['Último Movimiento'] = pd.to_datetime(df['Últimiento Movimiento'], errors='coerce') if 'Últimiento Movimiento' in df else pd.to_datetime(df['Último Movimiento'], errors='coerce')
         df['Monto Est.'] = pd.to_numeric(df['Monto Est.'], errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame(columns=['ID', 'Fecha Creación', 'Último Movimiento', 'Ejecutivo Comercial', 'Cliente', 'Tipo de Solución', 'Monto Est.', 'Status', 'Cierre Estimado'])
 
 def guardar_datos(df_save):
-    # Formateamos antes de enviar a Google Sheets
     df_to_push = df_save.copy()
     df_to_push['Cierre Estimado'] = df_to_push['Cierre Estimado'].dt.strftime('%Y-%m-%d')
     df_to_push['Último Movimiento'] = df_to_push['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_to_push.astype(str))
 
-# --- INICIO DE LA LÓGICA DE LA APP ---
+# --- INICIO ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
 st.title("📋 Pipeline Estratégico RGC")
 
-# 3. BARRA LATERAL (REGISTRO Y EXPORTACIÓN)
+# SIDEBAR
 with st.sidebar:
-    st.header("📝 Registro de Oportunidad")
-    with st.form("registro_nuevo", clear_on_submit=True):
-        vendedor = st.text_input("Ejecutivo Comercial")
-        cliente = st.text_input("Cliente / Empresa")
-        equipo = st.text_input("Equipo / Solución")
-        monto = st.number_input("Monto Estimado ($)", min_value=0.0, format="%.2f")
-        cierre_form = st.date_input("Fecha Estimada de Cierre")
-        
-        if st.form_submit_button("Registrar en Pipeline"):
-            if vendedor and cliente:
-                nueva_fila = pd.DataFrame([{
+    st.header("📝 Registro")
+    with st.form("reg_form", clear_on_submit=True):
+        vend = st.text_input("Ejecutivo")
+        clie = st.text_input("Cliente")
+        equi = st.text_input("Equipo")
+        mont = st.number_input("Monto ($)", min_value=0.0)
+        cier = st.date_input("Fecha Cierre")
+        if st.form_submit_button("Registrar"):
+            if vend and clie:
+                nueva = pd.DataFrame([{
                     "ID": str(int(datetime.now().timestamp())),
                     "Fecha Creación": date.today().strftime('%Y-%m-%d'),
                     "Último Movimiento": pd.to_datetime(date.today()),
-                    "Ejecutivo Comercial": vendedor,
-                    "Cliente": cliente,
-                    "Tipo de Solución": equipo,
-                    "Monto Est.": monto,
+                    "Ejecutivo Comercial": vend,
+                    "Cliente": clie,
+                    "Tipo de Solución": equi,
+                    "Monto Est.": mont,
                     "Status": "Negociando",
-                    "Cierre Estimado": pd.to_datetime(cierre_form)
+                    "Cierre Estimado": pd.to_datetime(cier)
                 }])
-                df = pd.concat([df, nueva_fila], ignore_index=True)
+                df = pd.concat([df, nueva], ignore_index=True)
                 guardar_datos(df)
-                st.success("¡Oportunidad registrada!")
                 st.rerun()
-    
-    if not df.empty:
-        st.divider()
-        towrite = io.BytesIO()
-        df.to_excel(towrite, index=False, engine='xlsxwriter')
-        st.download_button(label="📥 Descargar Base de Datos (Excel)", data=towrite.getvalue(), file_name=f"Pipeline_RGC_{date.today()}.xlsx")
 
-# 4. MÉTRICAS PRINCIPALES (KPIs)
+# MÉTRICAS
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
-with m1:
-    st.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
-with m2:
-    st.metric("OPORTUNIDADES", len(activos))
-with m3:
-    st.metric("EQUIPOS EN NEG.", activos['Tipo de Solución'].nunique())
+m1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
+m2.metric("OPORTUNIDADES", len(activos))
+m3.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
 
 st.divider()
 
-# 5. CUERPO PRINCIPAL: GESTIÓN Y GRÁFICOS
 col_izq, col_der = st.columns([2, 1.3])
 
+# GESTIÓN (IZQUIERDA)
 with col_izq:
     st.subheader("🚀 Seguimiento de Clientes")
     if not activos.empty:
-        # Preparar visualización por meses en español
         activos['Mes_Nombre'] = activos['Cierre Estimado'].dt.strftime('%B')
         activos['Anio'] = activos['Cierre Estimado'].dt.strftime('%Y')
         activos['Mes_ES'] = activos['Mes_Nombre'].map(MESES_ES) + " " + activos['Anio']
         
-        meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_ES'].unique()
-        
-        for mes in meses_ordenados:
+        for mes in activos.sort_values('Cierre Estimado')['Mes_ES'].unique():
             st.markdown(f'<div class="header-mes">{mes}</div>', unsafe_allow_html=True)
             items = activos[activos['Mes_ES'] == mes]
-            
             for i, row in items.iterrows():
-                # Fecha legible DD/MM/AAAA
-                f_cierre_vis = row['Cierre Estimado'].strftime('%d/%m/%Y')
-                
                 with st.expander(f"📌 {row['Cliente']} | {row['Tipo de Solución']} (${row['Monto Est.']:,.0f})"):
-                    with st.form(key=f"form_edit_{row['ID']}"):
+                    with st.form(key=f"edit_{row['ID']}"):
                         c1, c2 = st.columns(2)
                         with c1:
-                            edit_ejecutivo = st.text_input("Ejecutivo", value=row['Ejecutivo Comercial'])
-                            edit_monto = st.number_input("Monto ($)", value=float(row['Monto Est.']))
+                            new_vend = st.text_input("Ejecutivo", value=row['Ejecutivo Comercial'])
+                            new_mont = st.number_input("Monto ($)", value=float(row['Monto Est.']))
                         with c2:
-                            edit_fecha = st.date_input("Fecha de Cierre", value=row['Cierre Estimado'].date())
-                            edit_status = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        
+                            new_fech = st.date_input("Cierre", value=row['Cierre Estimado'].date())
+                            new_stat = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
                         if st.form_submit_button("Guardar Cambios"):
-                            idx_global = df[df['ID'] == row['ID']].index[0]
-                            df.at[idx_global, 'Ejecutivo Comercial'] = edit_ejecutivo
-                            df.at[idx_global, 'Monto Est.'] = edit_monto
-                            df.at[idx_global, 'Cierre Estimado'] = pd.to_datetime(edit_fecha)
-                            df.at[idx_global, 'Status'] = edit_status
-                            df.at[idx_global, 'Último Movimiento'] = pd.to_datetime(date.today())
+                            idx = df[df['ID'] == row['ID']].index[0]
+                            df.at[idx, 'Ejecutivo Comercial'] = new_vend
+                            df.at[idx, 'Monto Est.'] = new_mont
+                            df.at[idx, 'Cierre Estimado'] = pd.to_datetime(new_fech)
+                            df.at[idx, 'Status'] = new_stat
+                            df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
                             guardar_datos(df)
                             st.rerun()
     else:
-        st.info("No hay oportunidades activas registradas.")
+        st.info("Sin registros activos.")
 
+# GRÁFICO (DERECHA)
 with col_der:
-    st.subheader("📊 Gráfico de Desempeño")
+    st.subheader("📊 Desempeño por Ejecutivo")
     if not activos.empty:
-        # Gráfico de Dona Moderno con etiquetas externas
-        df_graf = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
+        df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
         fig = px.pie(
-            df_graf, values='Monto Est.', names='Ejecutivo Comercial', 
-            hole=0.5, color_discrete_sequence=px.colors.qualitative.Bold
+            df_g, values='Monto Est.', names='Ejecutivo Comercial', 
+            hole=0.4, color_discrete_sequence=px.colors.qualitative.Dark24
         )
         
+        # --- EFECTO RELIEVE Y LÍNEAS GUÍA ---
         fig.update_traces(
-            textposition='outside', 
+            textposition='outside',
             textinfo='label+percent',
-            textfont_size=13,
-            pull=[0.05] * len(df_graf),
-            marker=dict(line=dict(color='#FFFFFF', width=2))
+            textfont_size=12,
+            pull=[0.03] * len(df_g), # Efecto de separación (relieve)
+            marker=dict(line=dict(color='#222', width=1.5)), # Bordes marcados para relieve
+            insidetextorientation='horizontal'
         )
         
         fig.update_layout(
             showlegend=False,
-            margin=dict(t=30, b=30, l=80, r=80),
-            height=450
+            margin=dict(t=40, b=40, l=100, r=100), # Espacio para que las líneas no se corten
+            height=500,
+            annotations=[dict(text='Pipeline', x=0.5, y=0.5, font_size=16, showarrow=False, font_color="grey")]
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.markdown("**Resumen por Vendedor:**")
-        for idx, r in df_graf.sort_values(by='Monto Est.', ascending=False).iterrows():
+        st.markdown("**Resumen Numérico:**")
+        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
             st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
-        
-        st.divider()
-        st.markdown("**Mezcla de Equipos:**")
-        por_equipo = activos['Tipo de Solución'].value_counts()
-        for eq, cant in por_equipo.items():
-            st.write(f"🛠️ {cant}x {eq}")
     else:
-        st.write("Registra datos para generar gráficos.")
+        st.write("No hay datos para graficar.")
 
-# 6. ARCHIVO HISTÓRICO (RECUPERACIÓN)
+# HISTÓRICO
 st.divider()
 st.subheader("📂 Archivo Histórico")
-historico = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
-
-if not historico.empty:
+hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
+if not hist.empty:
     for st_tipo in ["Postergado", "Ganado", "Perdido"]:
-        filtro = historico[historico['Status'] == st_tipo]
+        filtro = hist[hist['Status'] == st_tipo]
         if not filtro.empty:
             with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
                 for i, row in filtro.iterrows():
-                    col_t, col_s = st.columns([3, 1])
-                    f_h = row['Cierre Estimado'].strftime('%d/%m/%Y')
-                    col_t.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Vendedor: {row['Ejecutivo Comercial']} | Cierre: {f_h})")
-                    
-                    nuevo_st_h = col_s.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"hist_{row['ID']}")
-                    if nuevo_st_h != row['Status']:
-                        df.loc[df['ID'] == row['ID'], 'Status'] = nuevo_st_h
+                    col_a, col_b = st.columns([3, 1])
+                    f_v = row['Cierre Estimado'].strftime('%d/%m/%Y')
+                    col_a.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Vendedor: {row['Ejecutivo Comercial']} | Cierre: {f_v})")
+                    new_s_h = col_b.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"h_{row['ID']}")
+                    if new_s_h != row['Status']:
+                        df.loc[df['ID'] == row['ID'], 'Status'] = new_s_h
                         df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
                         guardar_datos(df)
                         st.rerun()
-else:
-    st.write("El historial está vacío.")
