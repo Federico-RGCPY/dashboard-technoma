@@ -1,6 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, date
 import io
@@ -15,7 +16,6 @@ MESES_ES = {
     "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
 }
 
-# Estilos originales (Guinda RGC)
 st.markdown("""
     <style>
     .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
@@ -45,7 +45,7 @@ def guardar_datos(df_save):
     df_p['Último Movimiento'] = df_p['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_p.astype(str))
 
-# --- INICIO ---
+# --- LÓGICA ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
@@ -95,45 +95,38 @@ with c1:
                             guardar_datos(df); st.rerun()
     else: st.info("Sin registros activos.")
 
-# GRÁFICO (DERECHA) - BARRAS MODERNAS PASTEL
+# GRÁFICO LLAMATIVO (DERECHA) - RADAR CHART
 with c2:
-    st.subheader("📊 Desempeño por Ejecutivo")
+    st.subheader("🎯 Potencial por Ejecutivo")
     if not activos.empty:
-        # Gráfico de Barras Horizontales con colores pasteles
-        fig = px.bar(
-            activos, 
-            y="Ejecutivo Comercial", 
-            x="Monto Est.", 
-            color="Ejecutivo Comercial", # Color por ejecutivo
-            orientation='h',
-            color_discrete_sequence=px.colors.qualitative.Pastel,
-            text_auto=',.0f'
-        )
+        df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=df_g['Monto Est.'],
+            theta=df_g['Ejecutivo Comercial'],
+            fill='toself',
+            fillcolor='rgba(128, 0, 32, 0.4)', # Guinda semitransparente
+            line=dict(color='#800020', width=3),
+            marker=dict(size=10, color='#800020')
+        ))
+
         fig.update_layout(
+            polar=dict(
+                radialaxis=dict(visible=True, showticklabels=False),
+                angularaxis=dict(tickfont=dict(size=12, color="grey"))
+            ),
             showlegend=False,
             height=450,
-            xaxis_title="Monto Total ($)",
-            yaxis_title="",
-            margin=dict(t=10, b=10, l=10, r=40),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)'
-        )
-        
-        fig.update_traces(
-            textposition='outside', 
-            cliponaxis=False,
-            marker_line_color='rgb(255,255,255)',
-            marker_line_width=1.5
+            margin=dict(t=40, b=40, l=60, r=60)
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.markdown("**Mezcla de Equipos:**")
-        por_eq = activos['Tipo de Solución'].value_counts()
-        for eq, cant in por_eq.items():
-            st.write(f"🛠️ {cant}x {eq}")
+        st.markdown("**Valores por Ejecutivo:**")
+        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
+            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
     else: st.write("Sin datos.")
 
 # HISTÓRICO
