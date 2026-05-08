@@ -6,21 +6,24 @@ import plotly.express as px
 from datetime import datetime, date
 import io
 
-# 1. CONFIGURACIÓN
-st.set_page_config(page_title="RGC Dashboard Gerencial", layout="wide")
+# 1. CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(page_title="RGC Dashboard VIP", layout="wide")
+
+# URL de tu Google Sheet
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
+# Diccionario para traducción de meses
 MESES_ES = {
     "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
     "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
     "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
 }
 
-# Estilos originales Guinda RGC
+# Estilos Originales RGC
 st.markdown("""
     <style>
-    .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
-    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; border-bottom: 4px solid #800020; }
+    .header-mes { background-color: #800020; color: white; padding: 12px; border-radius: 8px; margin-top: 25px; font-weight: bold; text-transform: uppercase; }
+    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }
     h1 { color: #800020 !important; font-weight: 800; }
     .stButton>button { background-color: #800020; color: white; border-radius: 5px; width: 100%; }
     </style>
@@ -50,31 +53,34 @@ def guardar_datos(df_save):
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
-st.title("🏛️ RGC Gerencial Vision")
+st.title("📋 Pipeline Estratégico RGC")
 
-# SIDEBAR
+# 3. SIDEBAR (REGISTRO)
 with st.sidebar:
-    st.header("📝 Registro de Cuentas")
+    st.header("📝 Registro")
     with st.form("reg_form", clear_on_submit=True):
-        v, c, e = st.text_input("Ejecutivo"), st.text_input("Cliente"), st.text_input("Equipo")
-        m, d = st.number_input("Monto ($)", min_value=0.0), st.date_input("Cierre")
-        if st.form_submit_button("Añadir al Pipeline"):
+        v = st.text_input("Ejecutivo")
+        c = st.text_input("Cliente")
+        e = st.text_input("Equipo")
+        m = st.number_input("Monto ($)", min_value=0.0)
+        d = st.date_input("Fecha Cierre")
+        if st.form_submit_button("Registrar Oportunidad"):
             if v and c:
                 nueva = pd.DataFrame([{"ID": str(int(datetime.now().timestamp())), "Fecha Creación": date.today().strftime('%Y-%m-%d'), "Último Movimiento": pd.to_datetime(date.today()), "Ejecutivo Comercial": v, "Cliente": c, "Tipo de Solución": e, "Monto Est.": m, "Status": "Negociando", "Cierre Estimado": pd.to_datetime(d)}])
                 df = pd.concat([df, nueva], ignore_index=True); guardar_datos(df); st.rerun()
 
-# KPIs
+# 4. KPIs
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
-m1.metric("PIPELINE TOTAL", f"${activos['Monto Est.'].sum():,.0f}")
+m1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
 m2.metric("OPORTUNIDADES", len(activos))
 m3.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
 
 st.divider()
-c1, c2 = st.columns([1.8, 1.2])
+col_izq, col_der = st.columns([2, 1.3])
 
 # GESTIÓN (IZQUIERDA)
-with c1:
+with col_izq:
     st.subheader("🚀 Seguimiento de Cartera")
     if not activos.empty:
         activos['Mes_ES'] = activos['Cierre Estimado'].dt.strftime('%B').map(MESES_ES) + " " + activos['Cierre Estimado'].dt.strftime('%Y')
@@ -88,59 +94,55 @@ with c1:
                         nm = ca.number_input("Monto ($)", value=float(row['Monto Est.']))
                         nf = cb.date_input("Cierre", value=row['Cierre Estimado'].date())
                         ns = cb.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        if st.form_submit_button("Actualizar"):
+                        if st.form_submit_button("Aplicar"):
                             idx = df[df['ID'] == row['ID']].index[0]
                             df.at[idx, 'Ejecutivo Comercial'], df.at[idx, 'Monto Est.'] = nv, nm
                             df.at[idx, 'Cierre Estimado'], df.at[idx, 'Status'] = pd.to_datetime(nf), ns
                             df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
                             guardar_datos(df); st.rerun()
-    else: st.info("Sin proyectos activos.")
+    else: st.info("Sin registros activos.")
 
-# GRÁFICO 3D BUBBLE (DERECHA)
-with c2:
-    st.subheader("📊 Distribución de Carga Gerencial")
+# GRÁFICO (DERECHA) - BARRAS CON EFECTO VOLUMEN
+with col_der:
+    st.subheader("📊 Desempeño Gerencial")
     if not activos.empty:
-        # Agrupamos por vendedor y cliente para las burbujas
-        fig = px.scatter(
-            activos,
-            x="Ejecutivo Comercial",
-            y="Monto Est.",
-            size="Monto Est.",
-            color="Ejecutivo Comercial",
-            hover_name="Cliente",
-            size_max=60,
-            color_discrete_sequence=px.colors.qualitative.Bold
-        )
+        df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index().sort_values('Monto Est.')
+        
+        # Crear Gráfico con Plotly Graph Objects para máximo control visual
+        fig = go.Figure(go.Bar(
+            y=df_g['Ejecutivo Comercial'],
+            x=df_g['Monto Est.'],
+            orientation='h',
+            text=df_g['Monto Est.'].apply(lambda x: f"${x:,.0f}"),
+            textposition='outside',
+            marker=dict(
+                color=df_g['Monto Est.'],
+                colorscale='YlOrRd', # Degradado que simula iluminación
+                line=dict(color='#333', width=2) # Borde oscuro para dar profundidad
+            )
+        ))
 
-        # Aplicamos estilo moderno y "limpio"
         fig.update_layout(
             showlegend=False,
             height=500,
+            xaxis_title="Pipeline ($)",
+            yaxis_title="",
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(t=20, b=20, l=20, r=20),
-            xaxis=dict(showgrid=False, title="Ejecutivos"),
-            yaxis=dict(showgrid=True, gridcolor='lightgrey', title="Monto ($)")
-        )
-        
-        # Efecto de relieve en las burbujas
-        fig.update_traces(
-            marker=dict(
-                line=dict(width=2, color='DarkSlateGrey'),
-                opacity=0.8
-            )
+            margin=dict(t=20, b=20, l=100, r=60),
+            xaxis=dict(showgrid=True, gridcolor='lightgrey'),
+            bargap=0.3 # Espacio entre barras para resaltar cada "bloque"
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.markdown("**Ranking de Ejecución:**")
-        rank = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().sort_values(ascending=False)
-        for e, m in rank.items():
-            st.write(f"👤 {e}: **${m:,.0f}**")
-    else: st.write("No hay datos suficientes.")
+        st.markdown("**Resumen de Ejecución:**")
+        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
+            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
+    else: st.write("No hay datos activos.")
 
-# HISTÓRICO
+# 5. HISTÓRICO
 st.divider()
 st.subheader("📂 Archivo Histórico")
 hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
@@ -151,7 +153,8 @@ if not hist.empty:
             with st.expander(f"Ver {t}s ({len(fil)})"):
                 for i, r in fil.iterrows():
                     ra, rb = st.columns([3, 1])
-                    ra.write(f"**{r['Cliente']}** - {r['Tipo de Solución']} ({r['Cierre Estimado'].strftime('%d/%m/%Y')})")
+                    f_v = r['Cierre Estimado'].strftime('%d/%m/%Y')
+                    ra.write(f"**{r['Cliente']}** - {r['Tipo de Solución']} ({f_v})")
                     nh = rb.selectbox("Reactivar", opciones_status, index=opciones_status.index(r['Status']), key=f"h_{r['ID']}")
                     if nh != r['Status']:
                         df.loc[df['ID'] == r['ID'], 'Status'] = nh
