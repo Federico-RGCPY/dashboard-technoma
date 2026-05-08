@@ -7,7 +7,7 @@ from datetime import datetime, date
 import io
 
 # 1. CONFIGURACIÓN
-st.set_page_config(page_title="RGC Dashboard VIP", layout="wide")
+st.set_page_config(page_title="RGC Dashboard Gerencial", layout="wide")
 URL_SHEET = "https://docs.google.com/spreadsheets/d/1L2kKpbx3u-bGehPZqce0Y7MVTKRK0fW9xEqkv5IZ2PQ/edit?usp=sharing"
 
 MESES_ES = {
@@ -16,12 +16,13 @@ MESES_ES = {
     "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
 }
 
+# Estilos originales Guinda RGC
 st.markdown("""
     <style>
     .header-mes { background-color: #800020; color: white; padding: 10px; border-radius: 8px; margin-top: 20px; font-weight: bold; text-transform: uppercase; }
-    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; }
+    .stMetric { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 10px; border-bottom: 4px solid #800020; }
     h1 { color: #800020 !important; font-weight: 800; }
-    .stButton>button { background-color: #800020; color: white; border-radius: 5px; }
+    .stButton>button { background-color: #800020; color: white; border-radius: 5px; width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -45,19 +46,19 @@ def guardar_datos(df_save):
     df_p['Último Movimiento'] = df_p['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_p.astype(str))
 
-# --- LÓGICA ---
+# --- LÓGICA PRINCIPAL ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
-st.title("📋 Pipeline Estratégico RGC")
+st.title("🏛️ RGC Gerencial Vision")
 
 # SIDEBAR
 with st.sidebar:
-    st.header("📝 Registro")
+    st.header("📝 Registro de Cuentas")
     with st.form("reg_form", clear_on_submit=True):
         v, c, e = st.text_input("Ejecutivo"), st.text_input("Cliente"), st.text_input("Equipo")
         m, d = st.number_input("Monto ($)", min_value=0.0), st.date_input("Cierre")
-        if st.form_submit_button("Registrar"):
+        if st.form_submit_button("Añadir al Pipeline"):
             if v and c:
                 nueva = pd.DataFrame([{"ID": str(int(datetime.now().timestamp())), "Fecha Creación": date.today().strftime('%Y-%m-%d'), "Último Movimiento": pd.to_datetime(date.today()), "Ejecutivo Comercial": v, "Cliente": c, "Tipo de Solución": e, "Monto Est.": m, "Status": "Negociando", "Cierre Estimado": pd.to_datetime(d)}])
                 df = pd.concat([df, nueva], ignore_index=True); guardar_datos(df); st.rerun()
@@ -65,16 +66,16 @@ with st.sidebar:
 # KPIs
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
-m1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
+m1.metric("PIPELINE TOTAL", f"${activos['Monto Est.'].sum():,.0f}")
 m2.metric("OPORTUNIDADES", len(activos))
 m3.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
 
 st.divider()
-c1, c2 = st.columns([2, 1.3])
+c1, c2 = st.columns([1.8, 1.2])
 
 # GESTIÓN (IZQUIERDA)
 with c1:
-    st.subheader("🚀 Seguimiento")
+    st.subheader("🚀 Seguimiento de Cartera")
     if not activos.empty:
         activos['Mes_ES'] = activos['Cierre Estimado'].dt.strftime('%B').map(MESES_ES) + " " + activos['Cierre Estimado'].dt.strftime('%Y')
         for mes in activos.sort_values('Cierre Estimado')['Mes_ES'].unique():
@@ -87,47 +88,57 @@ with c1:
                         nm = ca.number_input("Monto ($)", value=float(row['Monto Est.']))
                         nf = cb.date_input("Cierre", value=row['Cierre Estimado'].date())
                         ns = cb.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        if st.form_submit_button("Guardar Cambios"):
+                        if st.form_submit_button("Actualizar"):
                             idx = df[df['ID'] == row['ID']].index[0]
                             df.at[idx, 'Ejecutivo Comercial'], df.at[idx, 'Monto Est.'] = nv, nm
                             df.at[idx, 'Cierre Estimado'], df.at[idx, 'Status'] = pd.to_datetime(nf), ns
                             df.at[idx, 'Último Movimiento'] = pd.to_datetime(date.today())
                             guardar_datos(df); st.rerun()
-    else: st.info("Sin registros activos.")
+    else: st.info("Sin proyectos activos.")
 
-# GRÁFICO LLAMATIVO (DERECHA) - RADAR CHART
+# GRÁFICO 3D BUBBLE (DERECHA)
 with c2:
-    st.subheader("🎯 Potencial por Ejecutivo")
+    st.subheader("📊 Distribución de Carga Gerencial")
     if not activos.empty:
-        df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatterpolar(
-            r=df_g['Monto Est.'],
-            theta=df_g['Ejecutivo Comercial'],
-            fill='toself',
-            fillcolor='rgba(128, 0, 32, 0.4)', # Guinda semitransparente
-            line=dict(color='#800020', width=3),
-            marker=dict(size=10, color='#800020')
-        ))
+        # Agrupamos por vendedor y cliente para las burbujas
+        fig = px.scatter(
+            activos,
+            x="Ejecutivo Comercial",
+            y="Monto Est.",
+            size="Monto Est.",
+            color="Ejecutivo Comercial",
+            hover_name="Cliente",
+            size_max=60,
+            color_discrete_sequence=px.colors.qualitative.Bold
+        )
 
+        # Aplicamos estilo moderno y "limpio"
         fig.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, showticklabels=False),
-                angularaxis=dict(tickfont=dict(size=12, color="grey"))
-            ),
             showlegend=False,
-            height=450,
-            margin=dict(t=40, b=40, l=60, r=60)
+            height=500,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            margin=dict(t=20, b=20, l=20, r=20),
+            xaxis=dict(showgrid=False, title="Ejecutivos"),
+            yaxis=dict(showgrid=True, gridcolor='lightgrey', title="Monto ($)")
+        )
+        
+        # Efecto de relieve en las burbujas
+        fig.update_traces(
+            marker=dict(
+                line=dict(width=2, color='DarkSlateGrey'),
+                opacity=0.8
+            )
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.markdown("**Valores por Ejecutivo:**")
-        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
-            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
-    else: st.write("Sin datos.")
+        st.markdown("**Ranking de Ejecución:**")
+        rank = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().sort_values(ascending=False)
+        for e, m in rank.items():
+            st.write(f"👤 {e}: **${m:,.0f}**")
+    else: st.write("No hay datos suficientes.")
 
 # HISTÓRICO
 st.divider()
