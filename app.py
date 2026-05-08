@@ -102,13 +102,12 @@ with col_izq:
                             guardar_datos(df); st.rerun()
     else: st.info("Sin registros activos.")
 
-# GRÁFICO (DERECHA) - BARRAS CON EFECTO VOLUMEN
+# GRÁFICO (DERECHA) - CAMBIO A DESEMPEÑO POR EJECUTIVO
 with col_der:
-    st.subheader("📊 Desempeño Gerencial")
+    st.subheader("📊 Desempeño Ejecutivo") # <--- Cambio realizado aquí
     if not activos.empty:
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index().sort_values('Monto Est.')
         
-        # Crear Gráfico con Plotly Graph Objects para máximo control visual
         fig = go.Figure(go.Bar(
             y=df_g['Ejecutivo Comercial'],
             x=df_g['Monto Est.'],
@@ -117,8 +116,8 @@ with col_der:
             textposition='outside',
             marker=dict(
                 color=df_g['Monto Est.'],
-                colorscale='YlOrRd', # Degradado que simula iluminación
-                line=dict(color='#333', width=2) # Borde oscuro para dar profundidad
+                colorscale='YlOrRd', 
+                line=dict(color='#333', width=2) 
             )
         ))
 
@@ -131,7 +130,7 @@ with col_der:
             plot_bgcolor='rgba(0,0,0,0)',
             margin=dict(t=20, b=20, l=100, r=60),
             xaxis=dict(showgrid=True, gridcolor='lightgrey'),
-            bargap=0.3 # Espacio entre barras para resaltar cada "bloque"
+            bargap=0.3 
         )
         
         st.plotly_chart(fig, use_container_width=True)
