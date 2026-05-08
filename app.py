@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px  # <-- Esta línea faltaba y causaba el error
 from datetime import datetime, date
 import io
 
@@ -35,7 +36,7 @@ def cargar_datos():
     try:
         df = conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(how="all")
         df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
-        # Corrección de nombre de columna si existe error de dedo previa
+        # Buscamos la columna de movimiento de forma flexible
         col_mov = 'Último Movimiento' if 'Último Movimiento' in df.columns else 'Últimiento Movimiento'
         df['Último Movimiento'] = pd.to_datetime(df[col_mov], errors='coerce')
         df['Monto Est.'] = pd.to_numeric(df['Monto Est.'], errors='coerce').fillna(0)
@@ -80,13 +81,22 @@ with st.sidebar:
                 df = pd.concat([df, nueva], ignore_index=True)
                 guardar_datos(df)
                 st.rerun()
+    
+    if not df.empty:
+        st.divider()
+        towrite = io.BytesIO()
+        df.to_excel(towrite, index=False)
+        st.download_button(label="📥 Descargar Excel", data=towrite.getvalue(), file_name=f"Pipeline_RGC_{date.today()}.xlsx")
 
 # MÉTRICAS
 activos = df[df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 m1, m2, m3 = st.columns(3)
-m1.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
-m2.metric("OPORTUNIDADES", len(activos))
-m3.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
+with m1:
+    st.metric("PIPELINE ACTIVO", f"${activos['Monto Est.'].sum():,.0f}")
+with m2:
+    st.metric("OPORTUNIDADES", len(activos))
+with m3:
+    st.metric("EQUIPOS", activos['Tipo de Solución'].nunique())
 
 st.divider()
 
@@ -100,7 +110,9 @@ with col_izq:
         activos['Anio'] = activos['Cierre Estimado'].dt.strftime('%Y')
         activos['Mes_ES'] = activos['Mes_Nombre'].map(MESES_ES) + " " + activos['Anio']
         
-        for mes in activos.sort_values('Cierre Estimado')['Mes_ES'].unique():
+        meses_ordenados = activos.sort_values('Cierre Estimado')['Mes_ES'].unique()
+        
+        for mes in meses_ordenados:
             st.markdown(f'<div class="header-mes">{mes}</div>', unsafe_allow_html=True)
             items = activos[activos['Mes_ES'] == mes]
             for i, row in items.iterrows():
@@ -113,7 +125,7 @@ with col_izq:
                         with c2:
                             new_fech = st.date_input("Cierre", value=row['Cierre Estimado'].date())
                             new_stat = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        if st.form_submit_button("Guardar"):
+                        if st.form_submit_button("Guardar Cambios"):
                             idx = df[df['ID'] == row['ID']].index[0]
                             df.at[idx, 'Ejecutivo Comercial'] = new_vend
                             df.at[idx, 'Monto Est.'] = new_mont
@@ -131,53 +143,7 @@ with col_der:
     if not activos.empty:
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
-        # Usamos go.Pie para mayor control del efecto 3D/Exploded
+        # Efecto Exploded: Cada tajada se separa del centro
         fig = go.Figure(data=[go.Pie(
             labels=df_g['Ejecutivo Comercial'],
-            values=df_g['Monto Est.'],
-            hole=0, # Pastel completo (sin hueco) para parecerse a la imagen
-            pull=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1], # Separa todas las tajadas (Exploded)
-            textinfo='label+percent',
-            textposition='outside', # Nombres afuera para orden
-            marker=dict(
-                colors=px.colors.qualitative.Bold,
-                line=dict(color='#FFFFFF', width=2) # Línea blanca para resaltar relieve
-            ),
-            insidetextorientation='horizontal'
-        )])
-        
-        fig.update_layout(
-            showlegend=False,
-            margin=dict(t=50, b=50, l=100, r=100),
-            height=500,
-            # El "relieve" se enfatiza con la sombra y la separación de tajadas
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.divider()
-        st.markdown("**Detalle:**")
-        for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
-            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
-    else:
-        st.write("No hay datos.")
-
-# HISTÓRICO
-st.divider()
-st.subheader("📂 Archivo Histórico")
-hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
-if not hist.empty:
-    for st_tipo in ["Postergado", "Ganado", "Perdido"]:
-        filtro = hist[hist['Status'] == st_tipo]
-        if not filtro.empty:
-            with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
-                for i, row in filtro.iterrows():
-                    col_a, col_b = st.columns([3, 1])
-                    f_v = row['Cierre Estimado'].strftime('%d/%m/%Y')
-                    col_a.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Vendedor: {row['Ejecutivo Comercial']} | Cierre: {f_v})")
-                    new_s_h = col_b.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"h_{row['ID']}")
-                    if new_s_h != row['Status']:
-                        df.loc[df['ID'] == row['ID'], 'Status'] = new_s_h
-                        df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
-                        guardar_datos(df)
-                        st.rerun()
+            values=df_g['
