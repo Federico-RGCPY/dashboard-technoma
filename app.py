@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, date
 import io
 
@@ -35,7 +35,9 @@ def cargar_datos():
     try:
         df = conn.read(spreadsheet=URL_SHEET, ttl=0).dropna(how="all")
         df['Cierre Estimado'] = pd.to_datetime(df['Cierre Estimado'], errors='coerce')
-        df['Último Movimiento'] = pd.to_datetime(df['Últimiento Movimiento'], errors='coerce') if 'Últimiento Movimiento' in df else pd.to_datetime(df['Último Movimiento'], errors='coerce')
+        # Corrección de nombre de columna si existe error de dedo previa
+        col_mov = 'Último Movimiento' if 'Último Movimiento' in df.columns else 'Últimiento Movimiento'
+        df['Último Movimiento'] = pd.to_datetime(df[col_mov], errors='coerce')
         df['Monto Est.'] = pd.to_numeric(df['Monto Est.'], errors='coerce').fillna(0)
         return df
     except:
@@ -47,7 +49,7 @@ def guardar_datos(df_save):
     df_to_push['Último Movimiento'] = df_to_push['Último Movimiento'].dt.strftime('%Y-%m-%d')
     conn.update(spreadsheet=URL_SHEET, data=df_to_push.astype(str))
 
-# --- INICIO ---
+# --- INICIO LÓGICA APP ---
 df = cargar_datos()
 opciones_status = ["Negociando", "Bajo", "Medio", "Ganado", "Perdido", "Postergado"]
 
@@ -111,7 +113,7 @@ with col_izq:
                         with c2:
                             new_fech = st.date_input("Cierre", value=row['Cierre Estimado'].date())
                             new_stat = st.selectbox("Estado", opciones_status, index=opciones_status.index(row['Status']))
-                        if st.form_submit_button("Guardar Cambios"):
+                        if st.form_submit_button("Guardar"):
                             idx = df[df['ID'] == row['ID']].index[0]
                             df.at[idx, 'Ejecutivo Comercial'] = new_vend
                             df.at[idx, 'Monto Est.'] = new_mont
@@ -123,42 +125,42 @@ with col_izq:
     else:
         st.info("Sin registros activos.")
 
-# GRÁFICO (DERECHA)
+# GRÁFICO (DERECHA) - ESTILO 3D EXPLODED
 with col_der:
     st.subheader("📊 Desempeño por Ejecutivo")
     if not activos.empty:
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
-        fig = px.pie(
-            df_g, values='Monto Est.', names='Ejecutivo Comercial', 
-            hole=0.4, color_discrete_sequence=px.colors.qualitative.Dark24
-        )
-        
-        # --- EFECTO RELIEVE Y LÍNEAS GUÍA ---
-        fig.update_traces(
-            textposition='outside',
+        # Usamos go.Pie para mayor control del efecto 3D/Exploded
+        fig = go.Figure(data=[go.Pie(
+            labels=df_g['Ejecutivo Comercial'],
+            values=df_g['Monto Est.'],
+            hole=0, # Pastel completo (sin hueco) para parecerse a la imagen
+            pull=[0.1, 0.1, 0.1, 0.1, 0.1, 0.1], # Separa todas las tajadas (Exploded)
             textinfo='label+percent',
-            textfont_size=12,
-            pull=[0.03] * len(df_g), # Efecto de separación (relieve)
-            marker=dict(line=dict(color='#222', width=1.5)), # Bordes marcados para relieve
+            textposition='outside', # Nombres afuera para orden
+            marker=dict(
+                colors=px.colors.qualitative.Bold,
+                line=dict(color='#FFFFFF', width=2) # Línea blanca para resaltar relieve
+            ),
             insidetextorientation='horizontal'
-        )
+        )])
         
         fig.update_layout(
             showlegend=False,
-            margin=dict(t=40, b=40, l=100, r=100), # Espacio para que las líneas no se corten
+            margin=dict(t=50, b=50, l=100, r=100),
             height=500,
-            annotations=[dict(text='Pipeline', x=0.5, y=0.5, font_size=16, showarrow=False, font_color="grey")]
+            # El "relieve" se enfatiza con la sombra y la separación de tajadas
         )
         
         st.plotly_chart(fig, use_container_width=True)
         
         st.divider()
-        st.markdown("**Resumen Numérico:**")
+        st.markdown("**Detalle:**")
         for idx, r in df_g.sort_values(by='Monto Est.', ascending=False).iterrows():
             st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
     else:
-        st.write("No hay datos para graficar.")
+        st.write("No hay datos.")
 
 # HISTÓRICO
 st.divider()
