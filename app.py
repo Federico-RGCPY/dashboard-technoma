@@ -136,13 +136,13 @@ with col_izq:
     else:
         st.info("Sin registros activos.")
 
-# GRÁFICO (DERECHA)
+# GRÁFICOS (DERECHA)
 with col_der:
-    st.subheader("📊 Desempeño por Ejecutivo")
     if not activos.empty:
+        # --- GRÁFICO 1: TORTA 3D EXPLODED ---
+        st.subheader("📊 Desempeño por Ejecutivo")
         df_g = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
-        
-        fig = go.Figure(data=[go.Pie(
+        fig_pie = go.Figure(data=[go.Pie(
             labels=df_g['Ejecutivo Comercial'],
             values=df_g['Monto Est.'],
             hole=0,
@@ -151,9 +151,27 @@ with col_der:
             textposition='outside', 
             marker=dict(colors=px.colors.qualitative.Bold, line=dict(color='#FFFFFF', width=2))
         )])
+        fig_pie.update_layout(showlegend=False, margin=dict(t=30, b=30, l=80, r=80), height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
         
-        fig.update_layout(showlegend=False, margin=dict(t=50, b=50, l=80, r=80), height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        st.divider()
+
+        # --- GRÁFICO 2: EMBUDO DE VENTAS (FUNNEL) ---
+        st.subheader("🌪️ Embudo de Ventas")
+        # Contamos cuántas oportunidades hay en cada etapa activa
+        etapas_orden = ["Negociando", "Bajo", "Medio", "Ganado"]
+        df_funnel = activos['Status'].value_counts().reset_index()
+        df_funnel.columns = ['Etapa', 'Cantidad']
+        
+        # Asegurar el orden del embudo
+        df_funnel['Etapa'] = pd.Categorical(df_funnel['Etapa'], categories=etapas_orden, ordered=True)
+        df_funnel = df_funnel.sort_values('Etapa')
+
+        fig_funnel = px.funnel(df_funnel, x='Cantidad', y='Etapa', color='Etapa',
+                               color_discrete_sequence=px.colors.sequential.RdBu_r)
+        
+        fig_funnel.update_layout(showlegend=False, height=400, margin=dict(t=20, b=20, l=20, r=20))
+        st.plotly_chart(fig_funnel, use_container_width=True)
         
         st.divider()
         st.markdown("**Resumen Numérico:**")
@@ -168,16 +186,4 @@ st.subheader("📂 Archivo Histórico")
 hist = df[~df['Status'].isin(["Negociando", "Bajo", "Medio"])].copy()
 if not hist.empty:
     for st_tipo in ["Postergado", "Ganado", "Perdido"]:
-        filtro = hist[hist['Status'] == st_tipo]
-        if not filtro.empty:
-            with st.expander(f"Ver {st_tipo}s ({len(filtro)})"):
-                for i, row in filtro.iterrows():
-                    col_a, col_b = st.columns([3, 1])
-                    f_v = row['Cierre Estimado'].strftime('%d/%m/%Y')
-                    col_a.write(f"**{row['Cliente']}** - {row['Tipo de Solución']} (Vendedor: {row['Ejecutivo Comercial']} | Cierre: {f_v})")
-                    new_s_h = col_b.selectbox("Reactivar", opciones_status, index=opciones_status.index(row['Status']), key=f"h_{row['ID']}")
-                    if new_s_h != row['Status']:
-                        df.loc[df['ID'] == row['ID'], 'Status'] = new_s_h
-                        df.loc[df['ID'] == row['ID'], 'Último Movimiento'] = pd.to_datetime(date.today())
-                        guardar_datos(df)
-                        st.rerun()
+        filtro = hist[hist['Status'] == st
