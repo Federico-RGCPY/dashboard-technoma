@@ -135,6 +135,7 @@ with col_izq:
         st.info("No hay oportunidades activas.")
 
 with col_der:
+    with col_der:
     st.subheader("📊 Desempeño")
     if not activos.empty:
         # Agrupamos por vendedor y sumamos montos
@@ -180,8 +181,7 @@ with col_der:
         for eq, cant in por_equipo.items():
             st.write(f"🛠️ {cant}x {eq}")
     else:
-        st.write("Sin datos para graficar.")
-        
+        st.write("Sin datos para graficar.")        
         # --- MEJORAS DE VISIBILIDAD ---
         fig.update_traces(
             textposition='inside', 
