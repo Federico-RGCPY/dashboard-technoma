@@ -140,14 +140,47 @@ with col_der:
         # Agrupamos por vendedor y sumamos montos
         df_vendedores = activos.groupby('Ejecutivo Comercial')['Monto Est.'].sum().reset_index()
         
-        # Creamos el gráfico con Plotly
+        # Creamos el gráfico de Dona
         fig = px.pie(
             df_vendedores, 
             values='Monto Est.', 
             names='Ejecutivo Comercial', 
             hole=0.5,
-            color_discrete_sequence=px.colors.qualitative.Bold # Colores más fuertes para mejor contraste
+            color_discrete_sequence=px.colors.qualitative.Bold
         )
+        
+        # --- CONFIGURACIÓN PARA TEXTO EXTERIOR ---
+        fig.update_traces(
+            textposition='outside',        # Saca el texto de la torta
+            textinfo='label+percent',      # Muestra nombre + porcentaje
+            textfont_size=13,              # Tamaño de letra legible
+            pull=[0.05] * len(df_vendedores), # Separa un poco las rebanadas para estética
+            marker=dict(line=dict(color='#FFFFFF', width=2))
+        )
+        
+        fig.update_layout(
+            showlegend=False,              # Quitamos leyenda (ya está en las etiquetas)
+            margin=dict(t=50, b=50, l=80, r=80), # Margen amplio para que no se corte el texto fuera
+            height=450,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.divider()
+        st.markdown("**Resumen Numérico:**")
+        # Listado ordenado de mayor a menor
+        for i, r in df_vendedores.sort_values(by='Monto Est.', ascending=False).iterrows():
+            st.write(f"👤 {r['Ejecutivo Comercial']}: **${r['Monto Est.']:,.0f}**")
+        
+        st.divider()
+        st.markdown("**Mezcla de Equipos:**")
+        por_equipo = activos['Tipo de Solución'].value_counts()
+        for eq, cant in por_equipo.items():
+            st.write(f"🛠️ {cant}x {eq}")
+    else:
+        st.write("Sin datos para graficar.")
         
         # --- MEJORAS DE VISIBILIDAD ---
         fig.update_traces(
